@@ -13,7 +13,7 @@ import { InMemoryFileSystemProvider } from 'vs/platform/files/common/inMemoryFil
 import { Event } from 'vs/base/common/event';
 import { IAddressProvider } from 'vs/platform/remote/common/remoteAgentConnection';
 import { ITelemetryData, ITelemetryInfo, ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { IExtension } from 'vs/platform/extensions/common/extensions';
+import { ExtensionKind, IExtension } from 'vs/platform/extensions/common/extensions';
 import { SimpleConfigurationService as BaseSimpleConfigurationService } from 'vs/editor/standalone/browser/simpleServices';
 import { InMemoryStorageService } from 'vs/platform/storage/common/storage';
 import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
@@ -99,6 +99,7 @@ export class SimpleNativeWorkbenchEnvironmentService implements INativeWorkbench
 	isExtensionDevelopment: boolean = false;
 	disableExtensions: boolean | string[] = [];
 	extensionDevelopmentLocationURI?: URI[] | undefined;
+	extensionDevelopmentKind?: ExtensionKind[] | undefined;
 	extensionTestsLocationURI?: URI | undefined;
 	logLevel?: string | undefined;
 
