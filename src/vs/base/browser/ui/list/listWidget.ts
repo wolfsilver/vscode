@@ -1166,7 +1166,18 @@ export class List<T> implements ISpliceable<T>, IThemable, IDisposable {
 	get onTap(): Event<IListGestureEvent<T>> { return this.view.onTap; }
 
 	@memoize get onContextMenu(): Event<IListContextMenuEvent<T>> {
-		const fromKeyboard = Event.chain(domEvent(this.view.domNode, 'keyup'))
+		let didJustPressContextMenuKey = false;
+
+		// We need this in order to handle Ctrl+Alt+Meta+M in macOS with VoiceOver enabled
+		const fromKeyDown = Event.chain(domEvent(this.view.domNode, 'keydown'))
+			.map(e => new StandardKeyboardEvent(e))
+			.filter(e => e.keyCode === KeyCode.ContextMenu)
+			.forEach(() => didJustPressContextMenuKey = true)
+			.filter(() => false)
+			.event;
+
+		const fromKeyUp = Event.chain(domEvent(this.view.domNode, 'keyup'))
+			.forEach(() => didJustPressContextMenuKey = false)
 			.map(e => new StandardKeyboardEvent(e))
 			.filter(e => e.keyCode === KeyCode.ContextMenu || (e.shiftKey && e.keyCode === KeyCode.F10))
 			.map(stopEvent)
@@ -1180,11 +1191,11 @@ export class List<T> implements ISpliceable<T>, IThemable, IDisposable {
 			.event;
 
 		const fromMouse = Event.chain(this.view.onContextMenu)
-			// .filter(e => !(e.browserEvent.button === 0 && e.browserEvent.buttons === 0))
+			.filter(e => didJustPressContextMenuKey || !(e.browserEvent.button === 0 && e.browserEvent.buttons === 0 && !e.browserEvent.ctrlKey && !e.browserEvent.altKey && !e.browserEvent.metaKey))
 			.map(({ element, index, browserEvent }) => ({ element, index, anchor: { x: browserEvent.clientX + 1, y: browserEvent.clientY }, browserEvent }))
 			.event;
 
-		return Event.any<IListContextMenuEvent<T>>(fromKeyboard, fromMouse);
+		return Event.any<IListContextMenuEvent<T>>(fromKeyDown as Event<any>, fromKeyUp, fromMouse);
 	}
 
 	get onKeyDown(): Event<KeyboardEvent> { return domEvent(this.view.domNode, 'keydown'); }
