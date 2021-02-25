@@ -1180,7 +1180,7 @@ export class List<T> implements ISpliceable<T>, IThemable, IDisposable {
 			.event;
 
 		const fromMouse = Event.chain(this.view.onContextMenu)
-			.filter(e => !(e.browserEvent.button === 0 && e.browserEvent.buttons === 0 && !e.browserEvent.ctrlKey && !e.browserEvent.altKey && !e.browserEvent.metaKey))
+			// .filter(e => !(e.browserEvent.button === 0 && e.browserEvent.buttons === 0))
 			.map(({ element, index, browserEvent }) => ({ element, index, anchor: { x: browserEvent.clientX + 1, y: browserEvent.clientY }, browserEvent }))
 			.event;
 
