@@ -23,7 +23,6 @@ export interface IBuiltInExtension {
 }
 
 export type ConfigurationSyncStore = {
-	web?: Partial<Omit<ConfigurationSyncStore, 'web'>>,
 	url: string,
 	insidersUrl: string,
 	stableUrl: string,
@@ -108,6 +107,7 @@ export interface IProductConfiguration {
 	readonly twitterUrl?: string;
 	readonly requestFeatureUrl?: string;
 	readonly reportIssueUrl?: string;
+	readonly reportMarketplaceIssueUrl?: string;
 	readonly licenseUrl?: string;
 	readonly privacyStatementUrl?: string;
 	readonly telemetryOptOutUrl?: string;
@@ -123,6 +123,7 @@ export interface IProductConfiguration {
 	readonly portable?: string;
 
 	readonly extensionKind?: { readonly [extensionId: string]: ExtensionKind[]; };
+	readonly extensionSyncedKeys?: { readonly [extensionId: string]: string[]; };
 	readonly extensionAllowedProposedApi?: readonly string[];
 
 	readonly msftInternalDomains?: string[];
