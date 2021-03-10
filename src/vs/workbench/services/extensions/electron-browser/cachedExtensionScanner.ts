@@ -98,7 +98,7 @@ export class CachedExtensionScanner {
 				result.set(extensionKey, userExtension);
 			});
 			development.forEach(developedExtension => {
-				log.info('', nls.localize('extensionUnderDevelopment', "Loading development extension at {0}", developedExtension.extensionLocation.fsPath));
+				log.info('', nls.localize('extensionUnderDevelopment', "Loading development extension at {0}, kind {1}", developedExtension.extensionLocation.fsPath, JSON.stringify(developedExtension.extensionKind)));
 				const extensionKey = ExtensionIdentifier.toKey(developedExtension.identifier);
 				result.set(extensionKey, developedExtension);
 			});

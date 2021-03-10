@@ -21,7 +21,7 @@ import { ExtensionMessageCollector, ExtensionPoint, ExtensionsRegistry, IExtensi
 import { ExtensionDescriptionRegistry } from 'vs/workbench/services/extensions/common/extensionDescriptionRegistry';
 import { ResponsiveState } from 'vs/workbench/services/extensions/common/rpcProtocol';
 import { ExtensionHostManager } from 'vs/workbench/services/extensions/common/extensionHostManager';
-import { ExtensionIdentifier, IExtensionDescription, ExtensionType, ITranslatedScannedExtension, IExtension, ExtensionKind, IExtensionContributions } from 'vs/platform/extensions/common/extensions';
+import { ExtensionIdentifier, IExtensionDescription, ExtensionType, ITranslatedScannedExtension, IExtension, ExtensionKind, IExtensionContributions, IExtensionManifest } from 'vs/platform/extensions/common/extensions';
 import { IFileService } from 'vs/platform/files/common/files';
 import { parseExtensionDevOptions } from 'vs/workbench/services/extensions/common/extensionDevOptions';
 import { IProductService } from 'vs/platform/product/common/productService';
