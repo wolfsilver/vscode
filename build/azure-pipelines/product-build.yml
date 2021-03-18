@@ -116,7 +116,7 @@ resources:
       image: vscodehub.azurecr.io/vscode-linux-build-agent:stretch-armhf
       endpoint: VSCodeHub
     - container: snapcraft
-      image: snapcore/snapcraft:stable
+      image: snapcore/snapcraft:candidate
 
 stages:
   - stage: Compile
