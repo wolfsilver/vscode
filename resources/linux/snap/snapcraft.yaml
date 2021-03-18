@@ -12,9 +12,7 @@ architectures:
 
 grade: stable
 confinement: classic
-
-passthrough:
-  compression: lzo
+compression: lzo
 
 parts:
   gnome:
