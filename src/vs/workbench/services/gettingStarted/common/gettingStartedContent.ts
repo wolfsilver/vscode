@@ -9,7 +9,7 @@ import { ThemeIcon } from 'vs/platform/theme/common/themeService';
 import { registerIcon } from 'vs/platform/theme/common/iconRegistry';
 
 
-const setupIcon = registerIcon('getting-started-setup', Codicon.heart, localize('getting-started-setup-icon', "Icon used for the setup category of getting started"));
+const setupIcon = registerIcon('getting-started-setup', Codicon.rocket, localize('getting-started-setup-icon', "Icon used for the setup category of getting started"));
 const beginnerIcon = registerIcon('getting-started-beginner', Codicon.lightbulb, localize('getting-started-beginner-icon', "Icon used for the beginner category of getting started"));
 const codespacesIcon = registerIcon('getting-started-codespaces', Codicon.github, localize('getting-started-codespaces-icon', "Icon used for the codespaces category of getting started"));
 
@@ -201,6 +201,17 @@ export const content: GettingStartedContent = [
 					media: { type: 'image', altText: 'Language extensions', path: 'languageExtensions.png', }
 				},
 				{
+					id: 'keymaps',
+					title: localize('gettingStarted.keymaps.title', "Migrate your keyboard shortcuts"),
+					description: localize('gettingStarted.keymaps.description', "Keymap extensions bring your favorite keyboard shortcuts from other editors to VS Code."),
+					button: {
+						title: localize('gettingStarted.keymaps.button', "Keymap Extensions"),
+						command: 'workbench.extensions.action.showRecommendedKeymapExtensions',
+					},
+					doneOn: { commandExecuted: 'workbench.extensions.action.showRecommendedKeymapExtensions' },
+					media: { type: 'image', altText: 'List of keymap extensions.', path: 'keymaps.png', }
+				},
+				{
 					id: 'settingsSync',
 					title: localize('gettingStarted.settingsSync.title', "Sync your favorite setup"),
 					description: localize('gettingStarted.settingsSync.description', "Never lose the perfect VS Code setup! Settings Sync will back up and share settings, keybindings & extensions across several VS Code instances."),
@@ -242,16 +253,16 @@ export const content: GettingStartedContent = [
 
 	{
 		id: 'Beginner',
-		title: localize('gettingStarted.beginner.title', "Learn the Fundamentals"),
+		title: localize('gettingStarted.beginner.title', "Learn the Basics"),
 		icon: beginnerIcon,
-		description: localize('gettingStarted.beginner.description', "Save time with these must-have shortcuts & features."),
+		description: localize('gettingStarted.beginner.description', "Jump right into VS Code and get an overview of the must-have features."),
 		content: {
 			type: 'items',
 			items: [
 				{
 					id: 'commandPaletteTask',
-					title: localize('gettingStarted.commandPalette.title', "Find & run commands"),
-					description: localize('gettingStarted.commandPalette.description', "The easiest way to find everything VS Code can do. If you're ever looking for a feature or a shortcut, check here first!"),
+					title: localize('gettingStarted.commandPalette.title', "Command Palette"),
+					description: localize('gettingStarted.commandPalette.description', "Once you learn this most important shortcut, everything VS Code offers is just a keystroke away."),
 					button: {
 						title: localize('gettingStarted.commandPalette.button', "Open Command Palette"),
 						command: 'workbench.action.showCommands'
@@ -261,11 +272,11 @@ export const content: GettingStartedContent = [
 				},
 				{
 					id: 'terminal',
-					title: localize('gettingStarted.terminal.title', "Run tasks in the integrated terminal"),
+					title: localize('gettingStarted.terminal.title', "Built-in Terminal"),
 					description: localize('gettingStarted.terminal.description', "Quickly run shell commands and monitor build output, right next to your code."),
 					when: 'remoteName != codespaces',
 					button: {
-						title: localize('gettingStarted.terminal.button', "Open Terminal"),
+						title: localize('gettingStarted.terminal.button', "Show Terminal Panel"),
 						command: 'workbench.action.terminal.toggleTerminal'
 					},
 					doneOn: { commandExecuted: 'workbench.action.terminal.toggleTerminal' },
