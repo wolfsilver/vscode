@@ -255,7 +255,8 @@ suite('Token theme resolving', () => {
 		let root = new ExternalThemeTrieElement(new ThemeTrieElementRule(FontStyle.None, _A, _B), {
 			'var': new ExternalThemeTrieElement(new ThemeTrieElementRule(FontStyle.None, _C, _B))
 		});
-		assert.deepEqual(actual.getThemeTrieElement(), root);
+		assert.deepStrictEqual({ ...actual.getThemeTrieElement().children }, root.children);
+		assert.deepStrictEqual(actual.getThemeTrieElement().mainRule, root.mainRule);
 	});
 
 	test('same rules get merged', () => {
@@ -272,7 +273,7 @@ suite('Token theme resolving', () => {
 		let root = new ExternalThemeTrieElement(new ThemeTrieElementRule(FontStyle.None, _A, _B), {
 			'var': new ExternalThemeTrieElement(new ThemeTrieElementRule(FontStyle.Bold, _C, _B))
 		});
-		assert.deepEqual(actual.getThemeTrieElement(), root);
+		assert.deepStrictEqual(actual.getThemeTrieElement().children, root.children);
 	});
 
 	test('rules are inherited 1', () => {
@@ -292,7 +293,7 @@ suite('Token theme resolving', () => {
 				'identifier': new ExternalThemeTrieElement(new ThemeTrieElementRule(FontStyle.Bold, _D, _B))
 			})
 		});
-		assert.deepEqual(actual.getThemeTrieElement(), root);
+		assert.deepStrictEqual(actual.getThemeTrieElement(), root);
 	});
 
 	test('rules are inherited 2', () => {
@@ -327,7 +328,7 @@ suite('Token theme resolving', () => {
 				})
 			})
 		});
-		assert.deepEqual(actual.getThemeTrieElement(), root);
+		assert.deepStrictEqual(actual.getThemeTrieElement(), root);
 	});
 
 	test('custom colors are first in color map', () => {

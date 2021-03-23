@@ -60,10 +60,10 @@ suite('Objects', () => {
 
 		assert(foo.bar);
 		assert(Array.isArray(foo.bar));
-		assert.equal(foo.bar.length, 3);
-		assert.equal(foo.bar[0], 1);
-		assert.equal(foo.bar[1], 2);
-		assert.equal(foo.bar[2], 3);
+		assert.strictEqual(foo.bar.length, 3);
+		assert.strictEqual(foo.bar[0], 1);
+		assert.strictEqual(foo.bar[1], 2);
+		assert.strictEqual(foo.bar[2], 3);
 	});
 
 	test('mixin - no overwrite', function () {
@@ -77,7 +77,7 @@ suite('Objects', () => {
 
 		objects.mixin(foo, bar, false);
 
-		assert.equal(foo.bar, '123');
+		assert.strictEqual(foo.bar, '123');
 	});
 
 	test('cloneAndChange', () => {
@@ -86,7 +86,7 @@ suite('Objects', () => {
 			o1: o1,
 			o2: o1
 		};
-		assert.deepEqual(objects.cloneAndChange(o, () => { }), o);
+		assert.deepStrictEqual(objects.cloneAndChange(o, () => { }), o);
 	});
 
 	test('safeStringify', () => {
@@ -121,7 +121,7 @@ suite('Objects', () => {
 
 		let result = objects.safeStringify(circular);
 
-		assert.deepEqual(JSON.parse(result), {
+		assert.deepStrictEqual(JSON.parse(result), {
 			a: 42,
 			b: '[Circular]',
 			c: [
@@ -147,12 +147,12 @@ suite('Objects', () => {
 		};
 
 		let diff = objects.distinct(base, base);
-		assert.deepEqual(diff, {});
+		assert.deepStrictEqual(diff, Object.create(null));
 
 		let obj = {};
 
 		diff = objects.distinct(base, obj);
-		assert.deepEqual(diff, {});
+		assert.deepStrictEqual(diff, Object.create(null));
 
 		obj = {
 			one: 'one',
@@ -160,7 +160,7 @@ suite('Objects', () => {
 		};
 
 		diff = objects.distinct(base, obj);
-		assert.deepEqual(diff, {});
+		assert.deepStrictEqual(diff, Object.create(null));
 
 		obj = {
 			three: {
@@ -170,7 +170,7 @@ suite('Objects', () => {
 		};
 
 		diff = objects.distinct(base, obj);
-		assert.deepEqual(diff, {});
+		assert.deepStrictEqual(diff, Object.create(null));
 
 		obj = {
 			one: 'two',
@@ -182,7 +182,8 @@ suite('Objects', () => {
 		};
 
 		diff = objects.distinct(base, obj);
-		assert.deepEqual(diff, {
+		assert.deepStrictEqual(diff, {
+			__proto__: null,
 			one: 'two',
 			four: true
 		});
@@ -197,7 +198,8 @@ suite('Objects', () => {
 		};
 
 		diff = objects.distinct(base, obj);
-		assert.deepEqual(diff, {
+		assert.deepStrictEqual(diff, {
+			__proto__: null,
 			one: null,
 			four: undefined
 		});
@@ -210,7 +212,7 @@ suite('Objects', () => {
 		};
 
 		diff = objects.distinct(base, obj);
-		assert.deepEqual(diff, obj);
+		assert.deepStrictEqual({ ...diff }, { ...obj });
 	});
 
 	test('getCaseInsensitive', () => {
@@ -219,10 +221,10 @@ suite('Objects', () => {
 			mIxEdCaSe: 456
 		};
 
-		assert.equal(obj1.lowercase, objects.getCaseInsensitive(obj1, 'lowercase'));
-		assert.equal(obj1.lowercase, objects.getCaseInsensitive(obj1, 'lOwErCaSe'));
+		assert.strictEqual(obj1.lowercase, objects.getCaseInsensitive(obj1, 'lowercase'));
+		assert.strictEqual(obj1.lowercase, objects.getCaseInsensitive(obj1, 'lOwErCaSe'));
 
-		assert.equal(obj1.mIxEdCaSe, objects.getCaseInsensitive(obj1, 'MIXEDCASE'));
-		assert.equal(obj1.mIxEdCaSe, objects.getCaseInsensitive(obj1, 'mixedcase'));
+		assert.strictEqual(obj1.mIxEdCaSe, objects.getCaseInsensitive(obj1, 'MIXEDCASE'));
+		assert.strictEqual(obj1.mIxEdCaSe, objects.getCaseInsensitive(obj1, 'mixedcase'));
 	});
 });
