@@ -19,7 +19,7 @@ const GOLDEN_LINE_HEIGHT_RATIO = platform.isMacintosh ? 1.5 : 1.35;
 const MINIMUM_LINE_HEIGHT = 8;
 
 export class BareFontInfo {
-	readonly _bareFontInfoBrand: void;
+	readonly _bareFontInfoBrand: void = undefined;
 
 	/**
 	 * @internal
@@ -122,17 +122,24 @@ export class BareFontInfo {
 	/**
 	 * @internal
 	 */
-	public getMassagedFontFamily(): string {
-		if (/[,"']/.test(this.fontFamily)) {
-			// Looks like the font family might be already escaped
-			return this.fontFamily;
+	public getMassagedFontFamily(fallbackFontFamily: string | null): string {
+		const fontFamily = BareFontInfo._wrapInQuotes(this.fontFamily);
+		if (fallbackFontFamily && this.fontFamily !== fallbackFontFamily) {
+			return `${fontFamily}, ${fallbackFontFamily}`;
 		}
-		if (/[+ ]/.test(this.fontFamily)) {
-			// Wrap a font family using + or <space> with quotes
-			return `"${this.fontFamily}"`;
-		}
+		return fontFamily;
+	}
 
-		return this.fontFamily;
+	private static _wrapInQuotes(fontFamily: string): string {
+		if (/[,"']/.test(fontFamily)) {
+			// Looks like the font family might be already escaped
+			return fontFamily;
+		}
+		if (/[+ ]/.test(fontFamily)) {
+			// Wrap a font family using + or <space> with quotes
+			return `"${fontFamily}"`;
+		}
+		return fontFamily;
 	}
 }
 
@@ -140,7 +147,7 @@ export class BareFontInfo {
 export const SERIALIZED_FONT_INFO_VERSION = 1;
 
 export class FontInfo extends BareFontInfo {
-	readonly _editorStylingBrand: void;
+	readonly _editorStylingBrand: void = undefined;
 
 	readonly version: number = SERIALIZED_FONT_INFO_VERSION;
 	readonly isTrusted: boolean;

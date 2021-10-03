@@ -10,7 +10,6 @@ import { SideBySideEditorInput } from 'vs/workbench/common/editor/sideBySideEdit
 import { IWindowOpenable, IOpenWindowOptions, isWorkspaceToOpen, IOpenEmptyWindowOptions } from 'vs/platform/windows/common/windows';
 import { IHostService } from 'vs/workbench/services/host/browser/host';
 import { ServicesAccessor, IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
-import { IViewletService } from 'vs/workbench/services/viewlet/browser/viewlet';
 import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
 import { ExplorerFocusCondition, TextFileContentProvider, VIEWLET_ID, ExplorerCompressedFocusContext, ExplorerCompressedFirstFocusContext, ExplorerCompressedLastFocusContext, FilesExplorerFocusCondition, ExplorerFolderContext } from 'vs/workbench/contrib/files/common/files';
 import { ExplorerViewPaneContainer } from 'vs/workbench/contrib/files/browser/explorerViewlet';
@@ -44,8 +43,11 @@ import { ITextFileService } from 'vs/workbench/services/textfile/common/textfile
 import { IUriIdentityService } from 'vs/workbench/services/uriIdentity/common/uriIdentity';
 import { isPromiseCanceledError } from 'vs/base/common/errors';
 import { toAction } from 'vs/base/common/actions';
-import { EditorOverride } from 'vs/platform/editor/common/editor';
+import { EditorResolution } from 'vs/platform/editor/common/editor';
 import { hash } from 'vs/base/common/hash';
+import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
+import { IPaneCompositePartService } from 'vs/workbench/services/panecomposite/browser/panecomposite';
+import { ViewContainerLocation } from 'vs/workbench/common/views';
 
 // Commands
 
@@ -244,8 +246,8 @@ CommandsRegistry.registerCommand({
 
 		if (resources.length === 2) {
 			return editorService.openEditor({
-				originalInput: { resource: resources[0] },
-				modifiedInput: { resource: resources[1] },
+				original: { resource: resources[0] },
+				modified: { resource: resources[1] },
 				options: { pinned: true }
 			});
 		}
@@ -263,20 +265,27 @@ CommandsRegistry.registerCommand({
 		const rightResource = getResourceForCommand(resource, listService, editorService);
 		if (globalResourceToCompare && rightResource) {
 			editorService.openEditor({
-				originalInput: { resource: globalResourceToCompare },
-				modifiedInput: { resource: rightResource },
+				original: { resource: globalResourceToCompare },
+				modified: { resource: rightResource },
 				options: { pinned: true }
 			});
 		}
 	}
 });
 
-async function resourcesToClipboard(resources: URI[], relative: boolean, clipboardService: IClipboardService, notificationService: INotificationService, labelService: ILabelService): Promise<void> {
+async function resourcesToClipboard(resources: URI[], relative: boolean, clipboardService: IClipboardService, labelService: ILabelService, configurationService: IConfigurationService): Promise<void> {
 	if (resources.length) {
 		const lineDelimiter = isWindows ? '\r\n' : '\n';
 
-		const text = resources.map(resource => labelService.getUriLabel(resource, { relative, noPrefix: true }))
-			.join(lineDelimiter);
+		let separator: '/' | '\\' | undefined = undefined;
+		if (relative) {
+			const relativeSeparator = configurationService.getValue('explorer.copyRelativePathSeparator');
+			if (relativeSeparator === '/' || relativeSeparator === '\\') {
+				separator = relativeSeparator;
+			}
+		}
+
+		const text = resources.map(resource => labelService.getUriLabel(resource, { relative, noPrefix: true, separator })).join(lineDelimiter);
 		await clipboardService.writeText(text);
 	}
 }
@@ -291,7 +300,7 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 	id: COPY_PATH_COMMAND_ID,
 	handler: async (accessor, resource: URI | object) => {
 		const resources = getMultiSelectedResources(resource, accessor.get(IListService), accessor.get(IEditorService), accessor.get(IExplorerService));
-		await resourcesToClipboard(resources, false, accessor.get(IClipboardService), accessor.get(INotificationService), accessor.get(ILabelService));
+		await resourcesToClipboard(resources, false, accessor.get(IClipboardService), accessor.get(ILabelService), accessor.get(IConfigurationService));
 	}
 });
 
@@ -305,7 +314,7 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 	id: COPY_RELATIVE_PATH_COMMAND_ID,
 	handler: async (accessor, resource: URI | object) => {
 		const resources = getMultiSelectedResources(resource, accessor.get(IListService), accessor.get(IEditorService), accessor.get(IExplorerService));
-		await resourcesToClipboard(resources, true, accessor.get(IClipboardService), accessor.get(INotificationService), accessor.get(ILabelService));
+		await resourcesToClipboard(resources, true, accessor.get(IClipboardService), accessor.get(ILabelService), accessor.get(IConfigurationService));
 	}
 });
 
@@ -319,19 +328,19 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 		const activeInput = editorService.activeEditor;
 		const resource = EditorResourceAccessor.getOriginalUri(activeInput, { supportSideBySide: SideBySideEditor.PRIMARY });
 		const resources = resource ? [resource] : [];
-		await resourcesToClipboard(resources, false, accessor.get(IClipboardService), accessor.get(INotificationService), accessor.get(ILabelService));
+		await resourcesToClipboard(resources, false, accessor.get(IClipboardService), accessor.get(ILabelService), accessor.get(IConfigurationService));
 	}
 });
 
 CommandsRegistry.registerCommand({
 	id: REVEAL_IN_EXPLORER_COMMAND_ID,
 	handler: async (accessor, resource: URI | object) => {
-		const viewletService = accessor.get(IViewletService);
+		const paneCompositeService = accessor.get(IPaneCompositePartService);
 		const contextService = accessor.get(IWorkspaceContextService);
 		const explorerService = accessor.get(IExplorerService);
 		const uri = getResourceForCommand(resource, accessor.get(IListService), accessor.get(IEditorService));
 
-		const viewlet = (await viewletService.openViewlet(VIEWLET_ID, false))?.getViewPaneContainer() as ExplorerViewPaneContainer;
+		const viewlet = (await paneCompositeService.openPaneComposite(VIEWLET_ID, ViewContainerLocation.Sidebar, false))?.getViewPaneContainer() as ExplorerViewPaneContainer;
 
 		if (uri && contextService.isInsideWorkspace(uri)) {
 			const explorerView = viewlet.getExplorerView();
@@ -357,7 +366,7 @@ CommandsRegistry.registerCommand({
 
 		const uri = getResourceForCommand(resource, accessor.get(IListService), accessor.get(IEditorService));
 		if (uri) {
-			return editorService.openEditor({ resource: uri, options: { override: EditorOverride.PICK } });
+			return editorService.openEditor({ resource: uri, options: { override: EditorResolution.PICK } });
 		}
 
 		return undefined;
@@ -581,8 +590,8 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 	primary: KeyCode.LeftArrow,
 	id: PREVIOUS_COMPRESSED_FOLDER,
 	handler: (accessor) => {
-		const viewletService = accessor.get(IViewletService);
-		const viewlet = viewletService.getActiveViewlet();
+		const paneCompositeService = accessor.get(IPaneCompositePartService);
+		const viewlet = paneCompositeService.getActivePaneComposite(ViewContainerLocation.Sidebar);
 
 		if (viewlet?.getId() !== VIEWLET_ID) {
 			return;
@@ -600,8 +609,8 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 	primary: KeyCode.RightArrow,
 	id: NEXT_COMPRESSED_FOLDER,
 	handler: (accessor) => {
-		const viewletService = accessor.get(IViewletService);
-		const viewlet = viewletService.getActiveViewlet();
+		const paneCompositeService = accessor.get(IPaneCompositePartService);
+		const viewlet = paneCompositeService.getActivePaneComposite(ViewContainerLocation.Sidebar);
 
 		if (viewlet?.getId() !== VIEWLET_ID) {
 			return;
@@ -619,8 +628,8 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 	primary: KeyCode.Home,
 	id: FIRST_COMPRESSED_FOLDER,
 	handler: (accessor) => {
-		const viewletService = accessor.get(IViewletService);
-		const viewlet = viewletService.getActiveViewlet();
+		const paneCompositeService = accessor.get(IPaneCompositePartService);
+		const viewlet = paneCompositeService.getActivePaneComposite(ViewContainerLocation.Sidebar);
 
 		if (viewlet?.getId() !== VIEWLET_ID) {
 			return;
@@ -638,8 +647,8 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 	primary: KeyCode.End,
 	id: LAST_COMPRESSED_FOLDER,
 	handler: (accessor) => {
-		const viewletService = accessor.get(IViewletService);
-		const viewlet = viewletService.getActiveViewlet();
+		const paneCompositeService = accessor.get(IPaneCompositePartService);
+		const viewlet = paneCompositeService.getActivePaneComposite(ViewContainerLocation.Sidebar);
 
 		if (viewlet?.getId() !== VIEWLET_ID) {
 			return;
@@ -678,14 +687,13 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 	handler: async (accessor, args?: { viewType: string }) => {
 		const editorService = accessor.get(IEditorService);
 
-		if (typeof args?.viewType === 'string') {
-			const editorGroupsService = accessor.get(IEditorGroupsService);
-
-			const group = editorGroupsService.activeGroup;
-			await editorService.openEditor({ options: { override: args.viewType, pinned: true } }, group);
-		} else {
-			await editorService.openEditor({ options: { pinned: true } }); // untitled are always pinned
-		}
+		await editorService.openEditor({
+			resource: undefined,
+			options: {
+				override: args?.viewType,
+				pinned: true
+			}
+		});
 	}
 });
 

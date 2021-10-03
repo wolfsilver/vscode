@@ -4,18 +4,18 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createHash } from 'crypto';
-import { Socket, Server as NetServer, createConnection, createServer } from 'net';
-import * as zlib from 'zlib';
-import { Event, Emitter } from 'vs/base/common/event';
-import { ClientConnectionEvent, IPCServer } from 'vs/base/parts/ipc/common/ipc';
-import { join } from 'vs/base/common/path';
+import { createConnection, createServer, Server as NetServer, Socket } from 'net';
 import { tmpdir } from 'os';
-import { generateUuid } from 'vs/base/common/uuid';
-import { IDisposable, Disposable } from 'vs/base/common/lifecycle';
 import { VSBuffer } from 'vs/base/common/buffer';
-import { ISocket, Protocol, Client, ChunkStream, SocketCloseEvent, SocketCloseEventType } from 'vs/base/parts/ipc/common/ipc.net';
 import { onUnexpectedError } from 'vs/base/common/errors';
+import { Emitter, Event } from 'vs/base/common/event';
+import { Disposable, IDisposable } from 'vs/base/common/lifecycle';
+import { join } from 'vs/base/common/path';
 import { Platform, platform } from 'vs/base/common/platform';
+import { generateUuid } from 'vs/base/common/uuid';
+import { ClientConnectionEvent, IPCServer } from 'vs/base/parts/ipc/common/ipc';
+import { ChunkStream, Client, ISocket, Protocol, SocketCloseEvent, SocketCloseEventType } from 'vs/base/parts/ipc/common/ipc.net';
+import * as zlib from 'zlib';
 
 export class NodeSocket implements ISocket {
 
@@ -181,6 +181,8 @@ export class WebSocketNodeSocket extends Disposable implements ISocket {
 		state: ReadState.PeekHeader,
 		readLen: Constants.MinHeaderByteSize,
 		fin: 0,
+		compressed: false,
+		firstFrameOfMessage: true,
 		mask: 0
 	};
 
@@ -230,7 +232,7 @@ export class WebSocketNodeSocket extends Disposable implements ISocket {
 		this._recordInflateBytes = recordInflateBytes;
 		if (permessageDeflate) {
 			// See https://tools.ietf.org/html/rfc7692#page-16
-			// To simplify our logic, we don't negociate the window size
+			// To simplify our logic, we don't negotiate the window size
 			// and simply dedicate (2^15) / 32kb per web socket
 			this._zlibInflate = zlib.createInflateRaw({
 				windowBits: 15
@@ -396,6 +398,7 @@ export class WebSocketNodeSocket extends Disposable implements ISocket {
 				const peekHeader = this._incomingData.peek(this._state.readLen);
 				const firstByte = peekHeader.readUInt8(0);
 				const finBit = (firstByte & 0b10000000) >>> 7;
+				const rsv1Bit = (firstByte & 0b01000000) >>> 6;
 				const secondByte = peekHeader.readUInt8(1);
 				const hasMask = (secondByte & 0b10000000) >>> 7;
 				const len = (secondByte & 0b01111111);
@@ -403,6 +406,11 @@ export class WebSocketNodeSocket extends Disposable implements ISocket {
 				this._state.state = ReadState.ReadHeader;
 				this._state.readLen = Constants.MinHeaderByteSize + (hasMask ? 4 : 0) + (len === 126 ? 2 : 0) + (len === 127 ? 8 : 0);
 				this._state.fin = finBit;
+				if (this._state.firstFrameOfMessage) {
+					// if the frame is compressed, the RSV1 bit is set only for the first frame of the message
+					this._state.compressed = Boolean(rsv1Bit);
+				}
+				this._state.firstFrameOfMessage = Boolean(finBit);
 				this._state.mask = 0;
 
 			} else if (this._state.state === ReadState.ReadHeader) {
@@ -455,7 +463,12 @@ export class WebSocketNodeSocket extends Disposable implements ISocket {
 				this._state.readLen = Constants.MinHeaderByteSize;
 				this._state.mask = 0;
 
-				if (this._zlibInflate) {
+				if (this._zlibInflate && this._state.compressed) {
+					// See https://datatracker.ietf.org/doc/html/rfc7692#section-9.2
+					// Even if permessageDeflate is negotiated, it is possible
+					// that the other side might decide to send uncompressed messages
+					// So only decompress messages that have the RSV 1 bit set
+					//
 					// See https://tools.ietf.org/html/rfc7692#section-7.2.2
 					if (this._recordInflateBytes) {
 						this._recordedInflateBytes.push(Buffer.from(<Buffer>body.buffer));

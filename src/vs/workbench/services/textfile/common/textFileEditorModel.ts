@@ -24,6 +24,12 @@ import { ILabelService } from 'vs/platform/label/common/label';
 import { CancellationToken, CancellationTokenSource } from 'vs/base/common/cancellation';
 import { UTF8 } from 'vs/workbench/services/textfile/common/encoding';
 import { createTextBufferFactoryFromStream } from 'vs/editor/common/model/textModel';
+import { ILanguageDetectionService } from 'vs/workbench/services/languageDetection/common/languageDetectionWorkerService';
+import { IPathService } from 'vs/workbench/services/path/common/pathService';
+import { extUri } from 'vs/base/common/resources';
+import { IAccessibilityService } from 'vs/platform/accessibility/common/accessibility';
+import { PLAINTEXT_MODE_ID } from 'vs/editor/common/modes/modesRegistry';
+import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
 
 interface IBackupMetaData extends IWorkingCopyBackupMeta {
 	mtime: number;
@@ -74,6 +80,7 @@ export class TextFileEditorModel extends BaseTextEditorModel implements ITextFil
 	readonly capabilities = WorkingCopyCapabilities.None;
 
 	readonly name = basename(this.labelService.getUriLabel(this.resource));
+	private resourceHasExtension: boolean = !!extUri.extname(this.resource);
 
 	private contentEncoding: string | undefined; // encoding as reported from disk
 
@@ -105,9 +112,13 @@ export class TextFileEditorModel extends BaseTextEditorModel implements ITextFil
 		@ILogService private readonly logService: ILogService,
 		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService,
 		@IFilesConfigurationService private readonly filesConfigurationService: IFilesConfigurationService,
-		@ILabelService private readonly labelService: ILabelService
+		@ILabelService private readonly labelService: ILabelService,
+		@ILanguageDetectionService languageDetectionService: ILanguageDetectionService,
+		@IAccessibilityService accessibilityService: IAccessibilityService,
+		@IPathService private readonly pathService: IPathService,
+		@IExtensionService private readonly extensionService: IExtensionService,
 	) {
-		super(modelService, modeService);
+		super(modelService, modeService, languageDetectionService, accessibilityService);
 
 		// Make known to working copy service
 		this._register(this.workingCopyService.registerWorkingCopy(this));
@@ -524,6 +535,9 @@ export class TextFileEditorModel extends BaseTextEditorModel implements ITextFil
 
 		// Model Listeners
 		this.installModelListeners(textModel);
+
+		// Detect language from content
+		this.autoDetectLanguage();
 	}
 
 	private doUpdateTextModel(value: ITextBufferFactory): void {
@@ -593,6 +607,32 @@ export class TextFileEditorModel extends BaseTextEditorModel implements ITextFil
 
 		// Emit as event
 		this._onDidChangeContent.fire();
+
+		// Detect language from content
+		this.autoDetectLanguage();
+	}
+
+	private static _whenReadyToDetectLanguage: Promise<boolean> | undefined;
+	private whenReadyToDetectLanguage(): Promise<boolean> {
+		if (TextFileEditorModel._whenReadyToDetectLanguage === undefined) {
+			// We need to wait until installed extensions are registered because if the editor is created before that (like when restoring an editor)
+			// it could be created with a mode of plaintext. This would trigger language detection even though the real issue is that the
+			// language extensions are not yet loaded to provide the actual mode.
+			TextFileEditorModel._whenReadyToDetectLanguage = this.extensionService.whenInstalledExtensionsRegistered();
+		}
+		return TextFileEditorModel._whenReadyToDetectLanguage;
+	}
+
+	protected override async autoDetectLanguage(): Promise<void> {
+		await this.whenReadyToDetectLanguage();
+		const mode = this.getMode();
+		if (
+			this.resource.scheme === this.pathService.defaultUriScheme &&	// make sure to not detect language for non-user visible documents
+			(!mode || mode === PLAINTEXT_MODE_ID) &&						// only run on files with plaintext mode set or no mode set at all
+			!this.resourceHasExtension										// only run if this particular file doesn't have an extension
+		) {
+			return super.autoDetectLanguage();
+		}
 	}
 
 	//#endregion

@@ -129,7 +129,8 @@ export class MainThreadWorkspace implements MainThreadWorkspaceShape {
 			isUntitled: workspace.configuration ? isUntitledWorkspace(workspace.configuration, this._environmentService) : false,
 			folders: workspace.folders,
 			id: workspace.id,
-			name: this._labelService.getWorkspaceLabel(workspace)
+			name: this._labelService.getWorkspaceLabel(workspace),
+			transient: workspace.transient
 		};
 	}
 
@@ -214,7 +215,7 @@ export class MainThreadWorkspace implements MainThreadWorkspaceShape {
 	}
 
 	private isWorkspaceTrusted(): boolean {
-		return this._workspaceTrustManagementService.isWorkpaceTrusted();
+		return this._workspaceTrustManagementService.isWorkspaceTrusted();
 	}
 
 	private _onDidGrantWorkspaceTrust(): void {

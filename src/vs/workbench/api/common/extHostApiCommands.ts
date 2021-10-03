@@ -7,7 +7,7 @@ import { URI } from 'vs/base/common/uri';
 import type * as vscode from 'vscode';
 import * as typeConverters from 'vs/workbench/api/common/extHostTypeConverters';
 import * as types from 'vs/workbench/api/common/extHostTypes';
-import { IRawColorInfo, IWorkspaceEditDto, ICallHierarchyItemDto, IIncomingCallDto, IOutgoingCallDto } from 'vs/workbench/api/common/extHost.protocol';
+import { IRawColorInfo, IWorkspaceEditDto, ICallHierarchyItemDto, IIncomingCallDto, IOutgoingCallDto, ITypeHierarchyItemDto } from 'vs/workbench/api/common/extHost.protocol';
 import * as modes from 'vs/editor/common/modes';
 import * as search from 'vs/workbench/contrib/search/common/search';
 import { ApiCommand, ApiCommandArgument, ApiCommandResult, ExtHostCommands } from 'vs/workbench/api/common/extHostCommands';
@@ -156,6 +156,19 @@ const newCommands: ApiCommand[] = [
 		new ApiCommandResult<IOutgoingCallDto[], types.CallHierarchyOutgoingCall[]>('A CallHierarchyItem or undefined', v => v.map(typeConverters.CallHierarchyOutgoingCall.to))
 	),
 	// --- rename
+	new ApiCommand(
+		'vscode.prepareRename', '_executePrepareRename', 'Execute the prepareRename of rename provider.',
+		[ApiCommandArgument.Uri, ApiCommandArgument.Position],
+		new ApiCommandResult<modes.RenameLocation, { range: types.Range, placeholder: string } | undefined>('A promise that resolves to a range and placeholder text.', value => {
+			if (!value) {
+				return undefined;
+			}
+			return {
+				range: typeConverters.Range.to(value.range),
+				placeholder: value.text
+			};
+		})
+	),
 	new ApiCommand(
 		'vscode.executeDocumentRenameProvider', '_executeDocumentRenameProvider', 'Execute rename provider.',
 		[ApiCommandArgument.Uri, ApiCommandArgument.Position, ApiCommandArgument.String.with('newName', 'The new symbol name')],
@@ -406,6 +419,28 @@ const newCommands: ApiCommand[] = [
 		],
 		ApiCommandResult.Void
 	),
+	// --- type hierarchy
+	new ApiCommand(
+		'vscode.prepareTypeHierarchy', '_executePrepareTypeHierarchy', 'Prepare type hierarchy at a position inside a document',
+		[ApiCommandArgument.Uri, ApiCommandArgument.Position],
+		new ApiCommandResult<ITypeHierarchyItemDto[], types.TypeHierarchyItem[]>('A TypeHierarchyItem or undefined', v => v.map(typeConverters.TypeHierarchyItem.to))
+	),
+	new ApiCommand(
+		'vscode.provideSupertypes', '_executeProvideSupertypes', 'Compute supertypes for an item',
+		[ApiCommandArgument.TypeHierarchyItem],
+		new ApiCommandResult<ITypeHierarchyItemDto[], types.TypeHierarchyItem[]>('A TypeHierarchyItem or undefined', v => v.map(typeConverters.TypeHierarchyItem.to))
+	),
+	new ApiCommand(
+		'vscode.provideSubtypes', '_executeProvideSubtypes', 'Compute subtypes for an item',
+		[ApiCommandArgument.TypeHierarchyItem],
+		new ApiCommandResult<ITypeHierarchyItemDto[], types.TypeHierarchyItem[]>('A TypeHierarchyItem or undefined', v => v.map(typeConverters.TypeHierarchyItem.to))
+	),
+	// --- testing
+	new ApiCommand(
+		'vscode.revealTestInExplorer', '_revealTestInExplorer', 'Reveals a test instance in the explorer',
+		[ApiCommandArgument.TestItem],
+		ApiCommandResult.Void
+	)
 ];
 
 //#endregion

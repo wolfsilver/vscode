@@ -204,6 +204,8 @@ export abstract class AbstractExtHostExtensionService extends Disposable impleme
 	}
 
 	public async deactivateAll(): Promise<void> {
+		this._storagePath.onWillDeactivateAll();
+
 		let allPromises: Promise<void>[] = [];
 		try {
 			const allExtensions = this._registry.getAllExtensionDescriptions();
@@ -366,7 +368,7 @@ export abstract class AbstractExtHostExtensionService extends Disposable impleme
 			return Promise.resolve(new EmptyExtension(ExtensionActivationTimes.NONE));
 		}
 
-		this._logService.info(`ExtensionService#_doActivateExtension ${extensionDescription.identifier.value} ${JSON.stringify(reason)}`);
+		this._logService.info(`ExtensionService#_doActivateExtension ${extensionDescription.identifier.value}, startup: ${reason.startup}, activationEvent: '${reason.activationEvent}'${extensionDescription.identifier.value !== reason.extensionId.value ? `, root cause: ${reason.extensionId.value}` : ``}`);
 		this._logService.flush();
 
 		const activationTimesBuilder = new ExtensionActivationTimesBuilder(reason.startup);

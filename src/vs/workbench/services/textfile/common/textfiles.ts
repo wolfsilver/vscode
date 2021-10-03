@@ -335,6 +335,9 @@ export interface ITextFileEditorModelManager {
 	readonly onDidCreate: Event<ITextFileEditorModel>;
 	readonly onDidResolve: Event<ITextFileResolveEvent>;
 	readonly onDidChangeDirty: Event<ITextFileEditorModel>;
+	readonly onDidChangeReadonly: Event<ITextFileEditorModel>;
+	readonly onDidRemove: Event<URI>;
+	readonly onDidChangeOrphaned: Event<ITextFileEditorModel>;
 	readonly onDidChangeEncoding: Event<ITextFileEditorModel>;
 	readonly onDidSaveError: Event<ITextFileEditorModel>;
 	readonly onDidSave: Event<ITextFileSaveEvent>;
@@ -468,7 +471,7 @@ export interface IModeSupport {
 	/**
 	 * Sets the language mode of the object.
 	 */
-	setMode(mode: string): void;
+	setMode(mode: string, setExplicitly?: boolean): void;
 }
 
 export interface ITextFileEditorModel extends ITextEditorModel, IEncodingSupport, IModeSupport, IWorkingCopy {

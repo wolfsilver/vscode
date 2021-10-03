@@ -247,16 +247,21 @@ class FormatOnSaveParticipant implements ITextFileSaveParticipant {
 		}
 
 		const editorOrModel = findEditor(textEditorModel, this.codeEditorService) || textEditorModel;
-		const mode = this.configurationService.getValue<'file' | 'modifications'>('editor.formatOnSaveMode', overrides);
-		if (mode === 'modifications') {
-			// format modifications
+		const mode = this.configurationService.getValue<'file' | 'modifications' | 'modificationsIfAvailable'>('editor.formatOnSaveMode', overrides);
+
+		if (mode === 'file') {
+			await this.instantiationService.invokeFunction(formatDocumentWithSelectedProvider, editorOrModel, FormattingMode.Silent, nestedProgress, token);
+
+		} else {
 			const ranges = await this.instantiationService.invokeFunction(getModifiedRanges, isCodeEditor(editorOrModel) ? editorOrModel.getModel() : editorOrModel);
-			if (ranges) {
+			if (ranges === null && mode === 'modificationsIfAvailable') {
+				// no SCM, fallback to formatting the whole file iff wanted
+				await this.instantiationService.invokeFunction(formatDocumentWithSelectedProvider, editorOrModel, FormattingMode.Silent, nestedProgress, token);
+
+			} else if (ranges) {
+				// formatted modified ranges
 				await this.instantiationService.invokeFunction(formatDocumentRangesWithSelectedProvider, editorOrModel, ranges, FormattingMode.Silent, nestedProgress, token);
 			}
-		} else {
-			// format the whole file
-			await this.instantiationService.invokeFunction(formatDocumentWithSelectedProvider, editorOrModel, FormattingMode.Silent, nestedProgress, token);
 		}
 	}
 }

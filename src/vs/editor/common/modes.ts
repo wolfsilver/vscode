@@ -52,18 +52,6 @@ export class LanguageIdentifier {
 }
 
 /**
- * A mode. Will soon be obsolete.
- * @internal
- */
-export interface IMode {
-
-	getId(): string;
-
-	getLanguageIdentifier(): LanguageIdentifier;
-
-}
-
-/**
  * A font style. Values are 2^x such that a bit mask can be used.
  * @internal
  */
@@ -487,25 +475,9 @@ export let completionKindFromString: {
 })();
 
 export interface CompletionItemLabel {
-	/**
-	 * The function or variable. Rendered leftmost.
-	 */
-	name: string;
-
-	/**
-	 * The parameters without the return type. Render after `name`.
-	 */
-	signature?: string;
-
-	/**
-	 * The fully qualified name, like package name or file path. Rendered after `signature`.
-	 */
-	qualifier?: string;
-
-	/**
-	 * The return-type of a function or type of a property/variable. Rendered rightmost.
-	 */
-	type?: string;
+	label: string;
+	detail?: string;
+	description?: string;
 }
 
 export const enum CompletionItemTag {
@@ -707,6 +679,13 @@ export interface InlineCompletionContext {
 	 * How the completion was triggered.
 	 */
 	readonly triggerKind: InlineCompletionTriggerKind;
+
+	readonly selectedSuggestionInfo: SelectedSuggestionInfo | undefined;
+}
+
+export interface SelectedSuggestionInfo {
+	range: IRange;
+	text: string;
 }
 
 export interface InlineCompletion {
@@ -1560,6 +1539,7 @@ export interface AuthenticationSession {
 		id: string;
 	}
 	scopes: ReadonlyArray<string>;
+	idToken?: string;
 }
 
 /**

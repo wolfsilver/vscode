@@ -24,6 +24,7 @@ export const nullExtensionDescription = Object.freeze(<IExtensionDescription>{
 	isBuiltin: false,
 });
 
+export type WebWorkerExtHostConfigValue = boolean | 'auto';
 export const webWorkerExtHostConfig = 'extensions.webWorker';
 
 export const IExtensionService = createDecorator<IExtensionService>('extensionService');
@@ -35,10 +36,31 @@ export interface IMessage {
 	extensionPointId: string;
 }
 
+export const enum ExtensionRunningLocation {
+	None,
+	LocalProcess,
+	LocalWebWorker,
+	Remote
+}
+
+export function extensionRunningLocationToString(location: ExtensionRunningLocation) {
+	switch (location) {
+		case ExtensionRunningLocation.None:
+			return 'None';
+		case ExtensionRunningLocation.LocalProcess:
+			return 'LocalProcess';
+		case ExtensionRunningLocation.LocalWebWorker:
+			return 'LocalWebWorker';
+		case ExtensionRunningLocation.Remote:
+			return 'Remote';
+	}
+}
+
 export interface IExtensionsStatus {
 	messages: IMessage[];
 	activationTimes: ActivationTimes | undefined;
 	runtimeErrors: Error[];
+	runningLocation: ExtensionRunningLocation;
 }
 
 export class MissingExtensionDependency {
@@ -91,9 +113,18 @@ export const enum ExtensionHostKind {
 	Remote
 }
 
+export function extensionHostKindToString(kind: ExtensionHostKind): string {
+	switch (kind) {
+		case ExtensionHostKind.LocalProcess: return 'LocalProcess';
+		case ExtensionHostKind.LocalWebWorker: return 'LocalWebWorker';
+		case ExtensionHostKind.Remote: return 'Remote';
+	}
+}
+
 export interface IExtensionHost {
 	readonly kind: ExtensionHostKind;
 	readonly remoteAuthority: string | null;
+	readonly lazyStart: boolean;
 	readonly onExit: Event<[number, string | null]>;
 
 	start(): Promise<IMessagePassingProtocol> | null;
@@ -257,10 +288,30 @@ export interface IExtensionService {
 	 */
 	setRemoteEnvironment(env: { [key: string]: string | null }): Promise<void>;
 
+	/**
+	 * Please do not use!
+	 * (This is public such that the extension host process can coordinate with and call back in the IExtensionService)
+	 */
 	_activateById(extensionId: ExtensionIdentifier, reason: ExtensionActivationReason): Promise<void>;
+	/**
+	 * Please do not use!
+	 * (This is public such that the extension host process can coordinate with and call back in the IExtensionService)
+	 */
 	_onWillActivateExtension(extensionId: ExtensionIdentifier): void;
+	/**
+	 * Please do not use!
+	 * (This is public such that the extension host process can coordinate with and call back in the IExtensionService)
+	 */
 	_onDidActivateExtension(extensionId: ExtensionIdentifier, codeLoadingTime: number, activateCallTime: number, activateResolvedTime: number, activationReason: ExtensionActivationReason): void;
+	/**
+	 * Please do not use!
+	 * (This is public such that the extension host process can coordinate with and call back in the IExtensionService)
+	 */
 	_onDidActivateExtensionError(extensionId: ExtensionIdentifier, error: Error): void;
+	/**
+	 * Please do not use!
+	 * (This is public such that the extension host process can coordinate with and call back in the IExtensionService)
+	 */
 	_onExtensionRuntimeError(extensionId: ExtensionIdentifier, err: Error): void;
 }
 

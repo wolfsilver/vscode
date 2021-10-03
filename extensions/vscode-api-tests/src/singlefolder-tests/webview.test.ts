@@ -17,6 +17,7 @@ function workspaceFile(...segments: string[]) {
 
 const testDocument = workspaceFile('bower.json');
 
+
 suite('vscode API - webview', () => {
 	const disposables: vscode.Disposable[] = [];
 
@@ -239,7 +240,7 @@ suite('vscode API - webview', () => {
 	});
 
 
-	test.skip('webviews should only be able to load resources from workspace by default', async () => {
+	test('webviews should only be able to load resources from workspace by default', async () => {
 		const webview = _register(vscode.window.createWebviewPanel(webviewId, 'title', {
 			viewColumn: vscode.ViewColumn.One
 		}, {
@@ -254,18 +255,23 @@ suite('vscode API - webview', () => {
 					img.addEventListener('load', () => {
 						vscode.postMessage({ value: true });
 					});
-					img.addEventListener('error', () => {
+					img.addEventListener('error', (e) => {
+						console.log(e);
 						vscode.postMessage({ value: false });
 					});
 					img.src = message.data.src;
 					document.body.appendChild(img);
 				});
 
-				vscode.postMessage({ type: 'ready' });
+				vscode.postMessage({ type: 'ready', userAgent: window.navigator.userAgent });
 			</script>`);
 
 		const ready = getMessage(webview);
-		await ready;
+		if ((await ready).userAgent.indexOf('Firefox') >= 0) {
+			// Skip on firefox web for now.
+			// Firefox service workers never seem to get any 'fetch' requests here. Other browsers work fine
+			return;
+		}
 
 		{
 			const imagePath = webview.webview.asWebviewUri(workspaceFile('image.png'));
@@ -324,7 +330,7 @@ suite('vscode API - webview', () => {
 		}
 	});
 
-	test.skip('webviews using hard-coded old style vscode-resource uri should work', async () => {
+	test('webviews using hard-coded old style vscode-resource uri should work', async () => {
 		const webview = _register(vscode.window.createWebviewPanel(webviewId, 'title', { viewColumn: vscode.ViewColumn.One }, {
 			enableScripts: true,
 			localResourceRoots: [workspaceFile('sub')]
@@ -336,14 +342,22 @@ suite('vscode API - webview', () => {
 			<img src="${imagePath}">
 			<script>
 				const vscode = acquireVsCodeApi();
+				vscode.postMessage({ type: 'ready', userAgent: window.navigator.userAgent });
+
 				const img = document.getElementsByTagName('img')[0];
 				img.addEventListener('load', () => { vscode.postMessage({ value: true }); });
 				img.addEventListener('error', () => { vscode.postMessage({ value: false }); });
 			</script>`);
 
-		const firstResponse = getMessage(webview);
+		const ready = getMessage(webview);
+		if ((await ready).userAgent.indexOf('Firefox') >= 0) {
+			// Skip on firefox web for now.
+			// Firefox service workers never seem to get any 'fetch' requests here. Other browsers work fine
+			return;
+		}
+		const firstResponse = await sendRecieveMessage(webview, { src: imagePath.toString() });
 
-		assert.strictEqual((await firstResponse).value, true);
+		assert.strictEqual(firstResponse.value, true);
 	});
 
 	test('webviews should have real view column after they are created, #56097', async () => {
