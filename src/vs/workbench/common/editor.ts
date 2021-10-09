@@ -749,7 +749,9 @@ export enum EditorCloseContext {
 	UNKNOWN,
 
 	/**
-	 * The editor closed because it was in preview mode and got replaced.
+	 * The editor closed because it was replaced with another editor.
+	 * This can either happen via explicit replace call or when an
+	 * editor is in preview mode and another editor opens.
 	 */
 	REPLACE,
 
@@ -1131,12 +1133,8 @@ export async function pathsToEditors(paths: IPathData[] | undefined, fileService
 			return;
 		}
 
-		// Since we are possibly the first ones to use the file service
-		// on the resource, we must ensure to activate the provider first
-		// before asking whether the resource can be handled.
-		await fileService.activateProvider(resource.scheme);
-
-		if (!fileService.canHandleResource(resource)) {
+		const canHandleResource = await fileService.canHandleResource(resource);
+		if (!canHandleResource) {
 			return;
 		}
 

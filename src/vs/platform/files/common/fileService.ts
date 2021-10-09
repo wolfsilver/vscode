@@ -96,7 +96,15 @@ export class FileService extends Disposable implements IFileService {
 		await Promises.settled(joiners);
 	}
 
-	canHandleResource(resource: URI): boolean {
+	async canHandleResource(resource: URI): Promise<boolean> {
+
+		// Await activation of potentially extension contributed providers
+		await this.activateProvider(resource.scheme);
+
+		return this.hasProvider(resource);
+	}
+
+	hasProvider(resource: URI): boolean {
 		return this.provider.has(resource.scheme);
 	}
 
@@ -201,9 +209,7 @@ export class FileService extends Disposable implements IFileService {
 				trie = TernarySearchTree.forUris<true>(() => !isPathCaseSensitive);
 				trie.set(resource, true);
 				if (resolveTo) {
-					for (const uri of resolveTo) {
-						trie.set(uri, true);
-					}
+					trie.fill(true, resolveTo);
 				}
 			}
 

@@ -302,11 +302,11 @@ export class BackLayerWebView<T extends ICommonCellInfo> extends Disposable {
 						background-color: var(--theme-notebook-symbol-highlight-background);
 					}
 
-					#container > div.nb-cellDeleted {
+					#container > div.nb-cellDeleted .output_container {
 						background-color: var(--theme-notebook-diff-removed-background);
 					}
 
-					#container > div.nb-cellAdded {
+					#container > div.nb-cellAdded .output_container {
 						background-color: var(--theme-notebook-diff-inserted-background);
 					}
 
@@ -371,6 +371,7 @@ export class BackLayerWebView<T extends ICommonCellInfo> extends Disposable {
 				mimeTypes: renderer.mimeTypes,
 				extends: renderer.extends,
 				messaging: renderer.messaging !== RendererMessagingSpec.Never,
+				isBuiltin: renderer.isBuiltin
 			};
 		});
 	}
