@@ -7,19 +7,18 @@ import * as assert from 'assert';
 import { ShiftCommand } from 'vs/editor/common/commands/shiftCommand';
 import { Range } from 'vs/editor/common/core/range';
 import { Selection } from 'vs/editor/common/core/selection';
-import { IIdentifiedSingleEditOperation } from 'vs/editor/common/model';
-import { LanguageIdentifier } from 'vs/editor/common/modes';
-import { LanguageConfigurationRegistry } from 'vs/editor/common/modes/languageConfigurationRegistry';
+import { LanguageConfigurationRegistry } from 'vs/editor/common/languages/languageConfigurationRegistry';
 import { getEditOperation, testCommand } from 'vs/editor/test/browser/testCommand';
-import { withEditorModel } from 'vs/editor/test/common/editorTestUtils';
+import { withEditorModel } from 'vs/editor/test/common/testTextModel';
 import { MockMode } from 'vs/editor/test/common/mocks/mockMode';
 import { javascriptOnEnterRules } from 'vs/editor/test/common/modes/supports/javascriptOnEnterRules';
 import { EditorAutoIndentStrategy } from 'vs/editor/common/config/editorOptions';
+import { ISingleEditOperation } from 'vs/editor/common/core/editOperation';
 
 /**
  * Create single edit operation
  */
-export function createSingleEditOp(text: string, positionLineNumber: number, positionColumn: number, selectionLineNumber: number = positionLineNumber, selectionColumn: number = positionColumn): IIdentifiedSingleEditOperation {
+export function createSingleEditOp(text: string, positionLineNumber: number, positionColumn: number, selectionLineNumber: number = positionLineNumber, selectionColumn: number = positionColumn): ISingleEditOperation {
 	return {
 		range: new Range(selectionLineNumber, selectionColumn, positionLineNumber, positionColumn),
 		text: text,
@@ -29,11 +28,11 @@ export function createSingleEditOp(text: string, positionLineNumber: number, pos
 
 class DocBlockCommentMode extends MockMode {
 
-	private static readonly _id = new LanguageIdentifier('commentMode', 3);
+	private static readonly _id = 'commentMode';
 
 	constructor() {
 		super(DocBlockCommentMode._id);
-		this._register(LanguageConfigurationRegistry.register(this.getLanguageIdentifier(), {
+		this._register(LanguageConfigurationRegistry.register(this.languageId, {
 			brackets: [
 				['(', ')'],
 				['{', '}'],
@@ -45,8 +44,8 @@ class DocBlockCommentMode extends MockMode {
 	}
 }
 
-function testShiftCommand(lines: string[], languageIdentifier: LanguageIdentifier | null, useTabStops: boolean, selection: Selection, expectedLines: string[], expectedSelection: Selection): void {
-	testCommand(lines, languageIdentifier, selection, (sel) => new ShiftCommand(sel, {
+function testShiftCommand(lines: string[], languageId: string | null, useTabStops: boolean, selection: Selection, expectedLines: string[], expectedSelection: Selection): void {
+	testCommand(lines, languageId, selection, (sel) => new ShiftCommand(sel, {
 		isUnshift: false,
 		tabSize: 4,
 		indentSize: 4,
@@ -56,8 +55,8 @@ function testShiftCommand(lines: string[], languageIdentifier: LanguageIdentifie
 	}), expectedLines, expectedSelection);
 }
 
-function testUnshiftCommand(lines: string[], languageIdentifier: LanguageIdentifier | null, useTabStops: boolean, selection: Selection, expectedLines: string[], expectedSelection: Selection): void {
-	testCommand(lines, languageIdentifier, selection, (sel) => new ShiftCommand(sel, {
+function testUnshiftCommand(lines: string[], languageId: string | null, useTabStops: boolean, selection: Selection, expectedLines: string[], expectedSelection: Selection): void {
+	testCommand(lines, languageId, selection, (sel) => new ShiftCommand(sel, {
 		isUnshift: true,
 		tabSize: 4,
 		indentSize: 4,
@@ -565,7 +564,7 @@ suite('Editor Commands - ShiftCommand', () => {
 					' */',
 					'function hello() {}'
 				],
-				mode.getLanguageIdentifier(),
+				mode.languageId,
 				true,
 				new Selection(1, 1, 5, 20),
 				[
@@ -586,7 +585,7 @@ suite('Editor Commands - ShiftCommand', () => {
 					' */',
 					'function hello() {}'
 				],
-				mode.getLanguageIdentifier(),
+				mode.languageId,
 				true,
 				new Selection(1, 1, 5, 20),
 				[
@@ -607,7 +606,7 @@ suite('Editor Commands - ShiftCommand', () => {
 					'\t */',
 					'\tfunction hello() {}'
 				],
-				mode.getLanguageIdentifier(),
+				mode.languageId,
 				true,
 				new Selection(1, 1, 5, 21),
 				[
@@ -635,7 +634,7 @@ suite('Editor Commands - ShiftCommand', () => {
 					' */',
 					'var foo = 0;'
 				],
-				mode.getLanguageIdentifier(),
+				mode.languageId,
 				true,
 				new Selection(1, 1, 7, 13),
 				[
@@ -953,7 +952,7 @@ suite('Editor Commands - ShiftCommand', () => {
 		// 3 => 2
 		testIndentation(4, 4, '         ', 2, 3);
 
-		function _assertUnshiftCommand(tabSize: number, indentSize: number, insertSpaces: boolean, text: string[], expected: IIdentifiedSingleEditOperation[]): void {
+		function _assertUnshiftCommand(tabSize: number, indentSize: number, insertSpaces: boolean, text: string[], expected: ISingleEditOperation[]): void {
 			return withEditorModel(text, (model) => {
 				let op = new ShiftCommand(new Selection(1, 1, text.length + 1, 1), {
 					isUnshift: true,
@@ -968,7 +967,7 @@ suite('Editor Commands - ShiftCommand', () => {
 			});
 		}
 
-		function _assertShiftCommand(tabSize: number, indentSize: number, insertSpaces: boolean, text: string[], expected: IIdentifiedSingleEditOperation[]): void {
+		function _assertShiftCommand(tabSize: number, indentSize: number, insertSpaces: boolean, text: string[], expected: ISingleEditOperation[]): void {
 			return withEditorModel(text, (model) => {
 				let op = new ShiftCommand(new Selection(1, 1, text.length + 1, 1), {
 					isUnshift: false,

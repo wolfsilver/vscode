@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import * as glob from 'vs/base/common/glob';
 import { sep } from 'vs/base/common/path';
-import { isWindows } from 'vs/base/common/platform';
+import { isLinux, isMacintosh, isWindows } from 'vs/base/common/platform';
 import { URI } from 'vs/base/common/uri';
 
 suite('Glob', () => {
@@ -64,7 +64,7 @@ suite('Glob', () => {
 	// });
 
 	function assertGlobMatch(pattern: string | glob.IRelativePattern, input: string) {
-		assert(glob.match(pattern, input), `${pattern} should match ${input}`);
+		assert(glob.match(pattern, input), `${JSON.stringify(pattern)} should match ${input}`);
 		assert(glob.match(pattern, nativeSep(input)), `${pattern} should match ${nativeSep(input)}`);
 	}
 
@@ -689,6 +689,37 @@ suite('Glob', () => {
 		assert.strictEqual(glob.match(expr, 'foo.as'), null);
 	});
 
+	test.skip('expression with non-trivia glob (issue 142781)', function () {
+		let pattern = '**/p*';
+
+		assert.strictEqual(glob.match(pattern, 'foo/barp'), false);
+		assert.strictEqual(glob.match(pattern, 'foo/bar/ap'), false);
+		assert.strictEqual(glob.match(pattern, 'ap'), false);
+
+		assert.strictEqual(glob.match(pattern, 'foo/barp1'), false);
+		assert.strictEqual(glob.match(pattern, 'foo/bar/ap1'), false);
+		assert.strictEqual(glob.match(pattern, 'ap1'), false);
+
+		assert.strictEqual(glob.match(pattern, '/foo/barp'), false);
+		assert.strictEqual(glob.match(pattern, '/foo/bar/ap'), false);
+		assert.strictEqual(glob.match(pattern, '/ap'), false);
+
+		assert.strictEqual(glob.match(pattern, '/foo/barp1'), false);
+		assert.strictEqual(glob.match(pattern, '/foo/bar/ap1'), false);
+		assert.strictEqual(glob.match(pattern, '/ap1'), false);
+
+		assert.strictEqual(glob.match(pattern, 'foo/pbar'), true);
+		assert.strictEqual(glob.match(pattern, '/foo/pbar'), true);
+		assert.strictEqual(glob.match(pattern, 'foo/bar/pa'), true);
+		assert.strictEqual(glob.match(pattern, '/p'), true);
+
+		pattern = 'some/**';
+
+		assert.strictEqual(glob.match(pattern, 'something/more'), false);
+		assert.strictEqual(glob.match(pattern, 'some'), false);
+		assert.strictEqual(glob.match(pattern, 'othersome/foo'), false);
+	});
+
 	test('expression with empty glob', function () {
 		let expr = { '': true };
 
@@ -1002,6 +1033,19 @@ suite('Glob', () => {
 			let p: glob.IRelativePattern = { base: '/DNXConsoleApp/foo', pattern: 'something/*.cs' };
 			assertGlobMatch(p, '/DNXConsoleApp/foo/something/Program.cs');
 			assertNoGlobMatch(p, '/DNXConsoleApp/foo/Program.cs');
+		}
+	});
+
+	test('relative pattern - ignores case on macOS/Windows', function () {
+		if (isWindows) {
+			let p: glob.IRelativePattern = { base: 'C:\\DNXConsoleApp\\foo', pattern: 'something/*.cs' };
+			assertGlobMatch(p, 'C:\\DNXConsoleApp\\foo\\something\\Program.cs'.toLowerCase());
+		} else if (isMacintosh) {
+			let p: glob.IRelativePattern = { base: '/DNXConsoleApp/foo', pattern: 'something/*.cs' };
+			assertGlobMatch(p, '/DNXConsoleApp/foo/something/Program.cs'.toLowerCase());
+		} else if (isLinux) {
+			let p: glob.IRelativePattern = { base: '/DNXConsoleApp/foo', pattern: 'something/*.cs' };
+			assertNoGlobMatch(p, '/DNXConsoleApp/foo/something/Program.cs'.toLowerCase());
 		}
 	});
 

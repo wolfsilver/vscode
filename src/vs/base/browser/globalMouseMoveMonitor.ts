@@ -39,7 +39,10 @@ export function standardMouseMoveMerger(lastEvent: IStandardMouseMoveEventData |
 	};
 }
 
-export class GlobalMouseMoveMonitor<R extends { buttons: number; }> implements IDisposable {
+/**
+ * @deprecated Please use `GlobalPointerMoveMonitor`
+ */
+export class GlobalMouseMoveMonitor<R extends { buttons: number }> implements IDisposable {
 
 	private readonly _hooks = new DisposableStore();
 	private _mouseMoveEventMerger: IEventMerger<R> | null = null;

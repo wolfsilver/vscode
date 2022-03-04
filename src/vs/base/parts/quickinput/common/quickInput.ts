@@ -6,7 +6,7 @@
 import { Event } from 'vs/base/common/event';
 import { IMatch } from 'vs/base/common/filters';
 import { IItemAccessor } from 'vs/base/common/fuzzyScorer';
-import { ResolvedKeybinding } from 'vs/base/common/keyCodes';
+import { ResolvedKeybinding } from 'vs/base/common/keybindings';
 import { IDisposable } from 'vs/base/common/lifecycle';
 import { Schemas } from 'vs/base/common/network';
 import Severity from 'vs/base/common/severity';
@@ -156,7 +156,7 @@ export interface IInputOptions {
 	/**
 	 * an optional function that is used to validate user input.
 	 */
-	validateInput?: (input: string) => Promise<string | null | undefined | { content: string, severity: Severity }>;
+	validateInput?: (input: string) => Promise<string | null | undefined | { content: string; severity: Severity }>;
 }
 
 export enum QuickInputHideReason {
@@ -353,7 +353,7 @@ export interface IInputBox extends IQuickInput {
 
 export interface IQuickInputButton {
 	/** iconPath or iconClass required */
-	iconPath?: { dark: URI; light?: URI; };
+	iconPath?: { dark: URI; light?: URI };
 	/** iconPath or iconClass required */
 	iconClass?: string;
 	tooltip?: string;
@@ -382,7 +382,7 @@ export type IQuickPickItemWithResource = IQuickPickItem & { resource?: URI };
 
 export class QuickPickItemScorerAccessor implements IItemAccessor<IQuickPickItemWithResource> {
 
-	constructor(private options?: { skipDescription?: boolean, skipPath?: boolean }) { }
+	constructor(private options?: { skipDescription?: boolean; skipPath?: boolean }) { }
 
 	getItemLabel(entry: IQuickPickItemWithResource): string {
 		return entry.label;
