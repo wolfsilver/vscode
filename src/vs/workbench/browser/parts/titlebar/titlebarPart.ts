@@ -150,7 +150,7 @@ export class TitlebarPart extends Part implements ITitleService {
 			}
 		}
 
-		if (this.titleBarStyle !== 'native' && this.windowControls && event.affectsConfiguration('workbench.experimental.layoutControl.enabled')) {
+		if (this.titleBarStyle !== 'native' && this.windowControls && event.affectsConfiguration('workbench.layoutControl.enabled')) {
 			this.windowControls.classList.toggle('show-layout-control', this.layoutControlEnabled);
 		}
 	}
@@ -293,7 +293,7 @@ export class TitlebarPart extends Part implements ITitleService {
 		// vscode-remtoe: use as is
 		// otherwise figure out if we have a virtual folder opened
 		let remoteName: string | undefined = undefined;
-		if (this.environmentService.remoteAuthority) {
+		if (this.environmentService.remoteAuthority && !isWeb) {
 			remoteName = this.labelService.getHostLabel(Schemas.vscodeRemote, this.environmentService.remoteAuthority);
 		} else {
 			const virtualWorkspaceLocation = getVirtualWorkspaceLocation(workspace);
@@ -550,7 +550,7 @@ export class TitlebarPart extends Part implements ITitleService {
 	}
 
 	private get layoutControlEnabled(): boolean {
-		return this.configurationService.getValue<boolean>('workbench.experimental.layoutControl.enabled');
+		return this.configurationService.getValue<boolean>('workbench.layoutControl.enabled');
 	}
 
 	updateLayout(dimension: Dimension): void {

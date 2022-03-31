@@ -1612,6 +1612,28 @@ export class InlineSuggestions implements vscode.InlineCompletionList {
 	}
 }
 
+@es5ClassCompat
+export class InlineSuggestionNew implements vscode.InlineCompletionItemNew {
+	insertText: string;
+	range?: Range;
+	command?: vscode.Command;
+
+	constructor(insertText: string, range?: Range, command?: vscode.Command) {
+		this.insertText = insertText;
+		this.range = range;
+		this.command = command;
+	}
+}
+
+@es5ClassCompat
+export class InlineSuggestionsNew implements vscode.InlineCompletionListNew {
+	items: vscode.InlineCompletionItemNew[];
+
+	constructor(items: vscode.InlineCompletionItemNew[]) {
+		this.items = items;
+	}
+}
+
 export enum ViewColumn {
 	Active = -1,
 	Beside = -2,
@@ -1804,7 +1826,7 @@ export class TerminalProfile implements vscode.TerminalProfile {
 		public options: vscode.TerminalOptions | vscode.ExtensionTerminalOptions
 	) {
 		if (typeof options !== 'object') {
-			illegalArgument('options');
+			throw illegalArgument('options');
 		}
 	}
 }
@@ -2358,15 +2380,15 @@ export class DataTransferItem {
 }
 
 @es5ClassCompat
-export class DataTransfer<T extends DataTransferItem = DataTransferItem> {
-	private readonly _items: Map<string, T> = new Map();
-	get(mimeType: string): T | undefined {
+export class DataTransfer {
+	private readonly _items: Map<string, DataTransferItem> = new Map();
+	get(mimeType: string): DataTransferItem | undefined {
 		return this._items.get(mimeType);
 	}
-	set(mimeType: string, value: T): void {
+	set(mimeType: string, value: DataTransferItem): void {
 		this._items.set(mimeType, value);
 	}
-	forEach(callbackfn: (value: T, key: string) => void): void {
+	forEach(callbackfn: (value: DataTransferItem, key: string) => void): void {
 		this._items.forEach(callbackfn);
 	}
 }
@@ -2585,6 +2607,11 @@ export class EvaluatableExpression implements vscode.EvaluatableExpression {
 export enum InlineCompletionTriggerKind {
 	Automatic = 0,
 	Explicit = 1,
+}
+
+export enum InlineCompletionTriggerKindNew {
+	Invoke = 0,
+	Automatic = 1,
 }
 
 @es5ClassCompat
@@ -2995,6 +3022,12 @@ export enum QuickPickItemKind {
 	Default = 0,
 }
 
+export enum InputBoxValidationSeverity {
+	Info = 1,
+	Warning = 2,
+	Error = 3
+}
+
 export enum ExtensionKind {
 	UI = 1,
 	Workspace = 2
@@ -3041,7 +3074,8 @@ export class ColorTheme implements vscode.ColorTheme {
 export enum ColorThemeKind {
 	Light = 1,
 	Dark = 2,
-	HighContrast = 3
+	HighContrast = 3,
+	HighContrastLight = 4
 }
 
 //#endregion Theming
@@ -3204,7 +3238,7 @@ export class NotebookCellOutputItem {
 		return new NotebookCellOutputItem(bytes, mime);
 	}
 
-	static json(value: any, mime: string = 'application/json'): NotebookCellOutputItem {
+	static json(value: any, mime: string = 'text/x-json'): NotebookCellOutputItem {
 		const rawStr = JSON.stringify(value, undefined, '\t');
 		return NotebookCellOutputItem.text(rawStr, mime);
 	}
@@ -3567,3 +3601,34 @@ export class TypeHierarchyItem {
 		this.selectionRange = selectionRange;
 	}
 }
+
+//#region Tab Inputs
+
+export class TextTabInput {
+	constructor(readonly uri: URI) { }
+}
+
+export class TextDiffTabInput {
+	constructor(readonly original: URI, readonly modified: URI) { }
+}
+
+export class CustomEditorTabInput {
+	constructor(readonly uri: URI, readonly viewType: string) { }
+}
+
+export class WebviewEditorTabInput {
+	constructor(readonly viewType: string) { }
+}
+
+export class NotebookEditorTabInput {
+	constructor(readonly uri: URI, readonly notebookType: string) { }
+}
+
+export class NotebookDiffEditorTabInput {
+	constructor(readonly original: URI, readonly modified: URI, readonly notebookType: string) { }
+}
+
+export class TerminalEditorTabInput {
+	constructor() { }
+}
+//#endregion

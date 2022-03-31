@@ -10,7 +10,8 @@
 	},
 	"enabledApiProposals": [
 		"notebookEditor",
-		"notebookEditorEdit"
+		"notebookEditorEdit",
+		"notebookDocumentEvents"
 	],
 	"activationEvents": [
 		"*"
@@ -31,7 +32,9 @@
 		"commands": [
 			{
 				"command": "ipynb.newUntitledIpynb",
-				"title": "Jupyter Notebook"
+				"title": "New Jupyter Notebook",
+				"shortTitle": "Jupyter Notebook",
+				"category": "Create"
 			},
 			{
 				"command": "ipynb.openIpynbInNotebookEditor",
@@ -54,13 +57,12 @@
 			"file/newFile": [
 				{
 					"command": "ipynb.newUntitledIpynb",
-					"when": "!jupyterEnabled"
+					"group": "notebook"
 				}
 			],
 			"commandPalette": [
 				{
-					"command": "ipynb.newUntitledIpynb",
-					"when": "false"
+					"command": "ipynb.newUntitledIpynb"
 				},
 				{
 					"command": "ipynb.openIpynbInNotebookEditor",

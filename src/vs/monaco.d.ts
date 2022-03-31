@@ -973,7 +973,7 @@ declare namespace monaco.editor {
 	 * Create a new web worker that has model syncing capabilities built in.
 	 * Specify an AMD module to load that will `create` an object that will be proxied.
 	 */
-	export function createWebWorker<T>(opts: IWebWorkerOptions): MonacoWebWorker<T>;
+	export function createWebWorker<T extends object>(opts: IWebWorkerOptions): MonacoWebWorker<T>;
 
 	/**
 	 * Colorize the contents of `domNode` using attribute `data-lang`.
@@ -1015,7 +1015,7 @@ declare namespace monaco.editor {
 	 */
 	export function registerCommand(id: string, handler: (accessor: any, ...args: any[]) => void): IDisposable;
 
-	export type BuiltinTheme = 'vs' | 'vs-dark' | 'hc-black';
+	export type BuiltinTheme = 'vs' | 'vs-dark' | 'hc-black' | 'hc-light';
 
 	export interface IStandaloneThemeData {
 		base: BuiltinTheme;
@@ -1185,7 +1185,7 @@ declare namespace monaco.editor {
 		maxTokenizationLineLength?: number;
 		/**
 		 * Theme to be used for rendering.
-		 * The current out-of-the-box available themes are: 'vs' (default), 'vs-dark', 'hc-black'.
+		 * The current out-of-the-box available themes are: 'vs' (default), 'vs-dark', 'hc-black', 'hc-light'.
 		 * You can create custom themes via `monaco.editor.defineTheme`.
 		 * To switch a theme, use `monaco.editor.setTheme`.
 		 * **NOTE**: The theme might be overwritten if the OS is in high contrast mode, unless `autoDetectHighContrast` is set to false.
@@ -1218,7 +1218,7 @@ declare namespace monaco.editor {
 		language?: string;
 		/**
 		 * Initial theme to be used for rendering.
-		 * The current out-of-the-box available themes are: 'vs' (default), 'vs-dark', 'hc-black'.
+		 * The current out-of-the-box available themes are: 'vs' (default), 'vs-dark', 'hc-black', 'hc-light.
 		 * You can create custom themes via `monaco.editor.defineTheme`.
 		 * To switch a theme, use `monaco.editor.setTheme`.
 		 * **NOTE**: The theme might be overwritten if the OS is in high contrast mode, unless `autoDetectHighContrast` is set to false.
@@ -1249,7 +1249,7 @@ declare namespace monaco.editor {
 	export interface IStandaloneDiffEditorConstructionOptions extends IDiffEditorConstructionOptions {
 		/**
 		 * Initial theme to be used for rendering.
-		 * The current out-of-the-box available themes are: 'vs' (default), 'vs-dark', 'hc-black'.
+		 * The current out-of-the-box available themes are: 'vs' (default), 'vs-dark', 'hc-black', 'hc-light.
 		 * You can create custom themes via `monaco.editor.defineTheme`.
 		 * To switch a theme, use `monaco.editor.setTheme`.
 		 * **NOTE**: The theme might be overwritten if the OS is in high contrast mode, unless `autoDetectHighContrast` is set to false.
@@ -1686,6 +1686,7 @@ declare namespace monaco.editor {
 
 	export interface BracketPairColorizationOptions {
 		enabled: boolean;
+		independentColorPoolPerBracketType: boolean;
 	}
 
 	export interface ITextModelUpdateOptions {
@@ -2095,7 +2096,15 @@ declare namespace monaco.editor {
 		/**
 		 * No preference.
 		*/
-		None = 2
+		None = 2,
+		/**
+		 * If the given position is on injected text, prefers the position left of it.
+		*/
+		LeftOfInjectedText = 3,
+		/**
+		 * If the given position is on injected text, prefers the position right of it.
+		*/
+		RightOfInjectedText = 4
 	}
 
 	/**
@@ -3723,6 +3732,12 @@ declare namespace monaco.editor {
 		 * Defaults to editor font family.
 		 */
 		fontFamily?: string;
+		/**
+		 * The display style to render inlay hints with.
+		 * Compact mode disables the borders and padding around the inlay hint.
+		 * Defaults to 'standard'.
+		 */
+		displayStyle: 'standard' | 'compact';
 	}
 
 	/**
@@ -3795,13 +3810,21 @@ declare namespace monaco.editor {
 		cycle?: boolean;
 	}
 
+	export type QuickSuggestionsValue = 'on' | 'inline' | 'off';
+
 	/**
 	 * Configuration options for quick suggestions
 	 */
 	export interface IQuickSuggestionsOptions {
-		other?: boolean;
-		comments?: boolean;
-		strings?: boolean;
+		other?: boolean | QuickSuggestionsValue;
+		comments?: boolean | QuickSuggestionsValue;
+		strings?: boolean | QuickSuggestionsValue;
+	}
+
+	export interface InternalQuickSuggestionsOptions {
+		readonly other: QuickSuggestionsValue;
+		readonly comments: QuickSuggestionsValue;
+		readonly strings: QuickSuggestionsValue;
 	}
 
 	export type LineNumbersType = 'on' | 'off' | 'relative' | 'interval' | ((lineNumber: number) => string);
@@ -3974,6 +3997,10 @@ declare namespace monaco.editor {
 		 * Enable or disable bracket pair colorization.
 		*/
 		enabled?: boolean;
+		/**
+		 * Use independent color pool per bracket type.
+		*/
+		independentColorPoolPerBracketType?: boolean;
 	}
 
 	export interface IGuidesOptions {
@@ -4411,7 +4438,7 @@ declare namespace monaco.editor {
 		parameterHints: IEditorOption<EditorOption.parameterHints, Readonly<Required<IEditorParameterHintOptions>>>;
 		peekWidgetDefaultFocus: IEditorOption<EditorOption.peekWidgetDefaultFocus, 'tree' | 'editor'>;
 		definitionLinkOpensInPeek: IEditorOption<EditorOption.definitionLinkOpensInPeek, boolean>;
-		quickSuggestions: IEditorOption<EditorOption.quickSuggestions, any>;
+		quickSuggestions: IEditorOption<EditorOption.quickSuggestions, InternalQuickSuggestionsOptions>;
 		quickSuggestionsDelay: IEditorOption<EditorOption.quickSuggestionsDelay, number>;
 		readOnly: IEditorOption<EditorOption.readOnly, boolean>;
 		renameOnType: IEditorOption<EditorOption.renameOnType, boolean>;
@@ -4487,6 +4514,12 @@ declare namespace monaco.editor {
 		 * Defaults to an internal DOM node.
 		 */
 		overflowWidgetsDomNode?: HTMLElement;
+		/**
+		 * Enables dropping into the editor.
+		 *
+		 * This shows a preview of the drop location and triggers an `onDropIntoEditor` event.
+		 */
+		enableDropIntoEditor?: boolean;
 	}
 
 	/**
@@ -5400,7 +5433,6 @@ declare namespace monaco.editor {
 
 declare namespace monaco.languages {
 
-
 	export interface IRelativePattern {
 		/**
 		 * A base file path to which this pattern will be matched against relatively.
@@ -6267,9 +6299,20 @@ declare namespace monaco.languages {
 		 * The text can also be a snippet. In that case, a preview with default parameters is shown.
 		 * When accepting the suggestion, the full snippet is inserted.
 		*/
-		readonly text: string | {
+		readonly insertText: string | {
 			snippet: string;
 		};
+		/**
+		 * A text that is used to decide if this inline completion should be shown.
+		 * An inline completion is shown if the text to replace is a subword of the filter text.
+		 */
+		readonly filterText?: string;
+		/**
+		 * An optional array of additional text edits that are applied when
+		 * selecting this completion. Edits must not overlap with the main edit
+		 * nor with themselves.
+		 */
+		readonly additionalTextEdits?: editor.ISingleEditOperation[];
 		/**
 		 * The range to replace.
 		 * Must begin and end on the same line.

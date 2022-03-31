@@ -69,53 +69,6 @@ declare module 'vscode' {
 		readonly viewColumn?: ViewColumn;
 	}
 
-	export interface NotebookDocumentMetadataChangeEvent {
-		/**
-		 * The {@link NotebookDocument notebook document} for which the document metadata have changed.
-		 */
-		//todo@API rename to notebook?
-		readonly document: NotebookDocument;
-	}
-
-	export interface NotebookCellsChangeData {
-		readonly start: number;
-		// todo@API end? Use NotebookCellRange instead?
-		readonly deletedCount: number;
-		// todo@API removedCells, deletedCells?
-		readonly deletedItems: NotebookCell[];
-		// todo@API addedCells, insertedCells, newCells?
-		readonly items: NotebookCell[];
-	}
-
-	export interface NotebookCellsChangeEvent {
-		/**
-		 * The {@link NotebookDocument notebook document} for which the cells have changed.
-		 */
-		//todo@API rename to notebook?
-		readonly document: NotebookDocument;
-		readonly changes: ReadonlyArray<NotebookCellsChangeData>;
-	}
-
-	export interface NotebookCellOutputsChangeEvent {
-		/**
-		 * The {@link NotebookDocument notebook document} for which the cell outputs have changed.
-		 */
-		//todo@API remove? use cell.notebook instead?
-		readonly document: NotebookDocument;
-		// NotebookCellOutputsChangeEvent.cells vs NotebookCellMetadataChangeEvent.cell
-		readonly cells: NotebookCell[];
-	}
-
-	export interface NotebookCellMetadataChangeEvent {
-		/**
-		 * The {@link NotebookDocument notebook document} for which the cell metadata have changed.
-		 */
-		//todo@API remove? use cell.notebook instead?
-		readonly document: NotebookDocument;
-		// NotebookCellOutputsChangeEvent.cells vs NotebookCellMetadataChangeEvent.cell
-		readonly cell: NotebookCell;
-	}
-
 	export interface NotebookEditorSelectionChangeEvent {
 		/**
 		 * The {@link NotebookEditor notebook editor} for which the selections have changed.
@@ -132,28 +85,11 @@ declare module 'vscode' {
 		readonly visibleRanges: ReadonlyArray<NotebookRange>;
 	}
 
-
 	export interface NotebookDocumentShowOptions {
 		viewColumn?: ViewColumn;
 		preserveFocus?: boolean;
 		preview?: boolean;
 		selections?: NotebookRange[];
-	}
-
-	export namespace notebooks {
-
-
-
-		export const onDidSaveNotebookDocument: Event<NotebookDocument>;
-
-		export const onDidChangeNotebookDocumentMetadata: Event<NotebookDocumentMetadataChangeEvent>;
-		export const onDidChangeNotebookCells: Event<NotebookCellsChangeEvent>;
-
-		// todo@API add onDidChangeNotebookCellOutputs
-		export const onDidChangeCellOutputs: Event<NotebookCellOutputsChangeEvent>;
-
-		// todo@API add onDidChangeNotebookCellMetadata
-		export const onDidChangeCellMetadata: Event<NotebookCellMetadataChangeEvent>;
 	}
 
 	export namespace window {

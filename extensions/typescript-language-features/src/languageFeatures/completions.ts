@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import * as nls from 'vscode-nls';
 import { Command, CommandManager } from '../commands/commandManager';
 import type * as Proto from '../protocol';
+import protocol = require('../protocol');
 import * as PConst from '../protocol.const';
 import { ClientCapability, ITypeScriptServiceClient, ServerResponse } from '../typescriptService';
 import API from '../utils/api';
@@ -58,7 +59,8 @@ class MyCompletionItem extends vscode.CompletionItem {
 	constructor(
 		public readonly position: vscode.Position,
 		public readonly document: vscode.TextDocument,
-		public readonly tsEntry: Proto.CompletionEntry,
+		// Intersection needed to avoid type error until TS 4.7.
+		public readonly tsEntry: Proto.CompletionEntry & { labelDetails?: { detail?: string; description?: string } },
 		private readonly completionContext: CompletionContext,
 		public readonly metadata: any | undefined,
 		client: ITypeScriptServiceClient,
@@ -83,6 +85,10 @@ class MyCompletionItem extends vscode.CompletionItem {
 		const { sourceDisplay, isSnippet } = tsEntry;
 		if (sourceDisplay) {
 			this.label = { label: tsEntry.name, description: Previewer.plainWithLinks(sourceDisplay, client) };
+		}
+
+		if (tsEntry.labelDetails) {
+			this.label = { label: tsEntry.name, ...tsEntry.labelDetails };
 		}
 
 		this.preselect = tsEntry.isRecommended;
@@ -134,18 +140,7 @@ class MyCompletionItem extends vscode.CompletionItem {
 				this.kind = vscode.CompletionItemKind.Color;
 			}
 
-			if (tsEntry.kind === PConst.Kind.script) {
-				for (const extModifier of PConst.KindModifiers.fileExtensionKindModifiers) {
-					if (kindModifiers.has(extModifier)) {
-						if (tsEntry.name.toLowerCase().endsWith(extModifier)) {
-							this.detail = tsEntry.name;
-						} else {
-							this.detail = tsEntry.name + extModifier;
-						}
-						break;
-					}
-				}
-			}
+			this.detail = getScriptKindDetails(tsEntry);
 		}
 
 		this.resolveRange();
@@ -206,7 +201,11 @@ class MyCompletionItem extends vscode.CompletionItem {
 
 			const detail = response.body[0];
 
-			this.detail = this.getDetails(client, detail);
+			const newItemDetails = this.getDetails(client, detail);
+			if (newItemDetails) {
+				this.detail = newItemDetails;
+			}
+
 			this.documentation = this.getDocumentation(client, detail, this.document.uri);
 
 			const codeAction = this.getCodeActions(detail, filepath);
@@ -252,6 +251,11 @@ class MyCompletionItem extends vscode.CompletionItem {
 		detail: Proto.CompletionEntryDetails,
 	): string | undefined {
 		const parts: string[] = [];
+
+		if (detail.kind === PConst.Kind.script) {
+			// details were already added
+			return undefined;
+		}
 
 		for (const action of detail.codeActions ?? []) {
 			parts.push(action.description);
@@ -517,6 +521,24 @@ class MyCompletionItem extends vscode.CompletionItem {
 
 		return commitCharacters;
 	}
+}
+
+function getScriptKindDetails(tsEntry: protocol.CompletionEntry,): string | undefined {
+	if (!tsEntry.kindModifiers || tsEntry.kind !== PConst.Kind.script) {
+		return;
+	}
+
+	const kindModifiers = parseKindModifier(tsEntry.kindModifiers);
+	for (const extModifier of PConst.KindModifiers.fileExtensionKindModifiers) {
+		if (kindModifiers.has(extModifier)) {
+			if (tsEntry.name.toLowerCase().endsWith(extModifier)) {
+				return tsEntry.name;
+			} else {
+				return tsEntry.name + extModifier;
+			}
+		}
+	}
+	return undefined;
 }
 
 

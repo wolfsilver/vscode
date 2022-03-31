@@ -57,13 +57,15 @@ const DEAFULT_INLINE_DEBOUNCE_DELAY = 200;
 export const debugInlineForeground = registerColor('editor.inlineValuesForeground', {
 	dark: '#ffffff80',
 	light: '#00000080',
-	hc: '#ffffff80'
+	hcDark: '#ffffff80',
+	hcLight: '#00000080'
 }, nls.localize('editor.inlineValuesForeground', "Color for the debug inline value text."));
 
 export const debugInlineBackground = registerColor('editor.inlineValuesBackground', {
 	dark: '#ffc80033',
 	light: '#ffc80033',
-	hc: '#ffc80033'
+	hcDark: '#ffc80033',
+	hcLight: '#ffc80033'
 }, nls.localize('editor.inlineValuesBackground', "Color for the debug inline value background."));
 
 class InlineSegment {
@@ -500,13 +502,18 @@ export class DebugEditorContribution implements IDebugEditorContribution {
 		this.exceptionWidget = this.instantiationService.createInstance(ExceptionWidget, this.editor, exceptionInfo, debugSession);
 		this.exceptionWidget.show({ lineNumber, column }, 0);
 		this.exceptionWidget.focus();
-		this.editor.revealLine(lineNumber);
+		this.editor.revealRangeInCenter({
+			startLineNumber: lineNumber,
+			startColumn: column,
+			endLineNumber: lineNumber,
+			endColumn: column,
+		});
 		this.exceptionWidgetVisible.set(true);
 	}
 
 	closeExceptionWidget(): void {
 		if (this.exceptionWidget) {
-			const shouldFocusEditor = this.exceptionWidget.hasfocus();
+			const shouldFocusEditor = this.exceptionWidget.hasFocus();
 			this.exceptionWidget.dispose();
 			this.exceptionWidget = undefined;
 			this.exceptionWidgetVisible.set(false);

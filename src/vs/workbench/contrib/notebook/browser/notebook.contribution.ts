@@ -29,7 +29,7 @@ import { NotebookEditor } from 'vs/workbench/contrib/notebook/browser/notebookEd
 import { isCompositeNotebookEditorInput, NotebookEditorInput, NotebookEditorInputOptions } from 'vs/workbench/contrib/notebook/common/notebookEditorInput';
 import { INotebookService } from 'vs/workbench/contrib/notebook/common/notebookService';
 import { NotebookService } from 'vs/workbench/contrib/notebook/browser/notebookServiceImpl';
-import { CellKind, CellUri, IResolvedNotebookEditorModel, NotebookDocumentBackupData, NotebookWorkingCopyTypeIdentifier, NotebookSetting, ICellOutput } from 'vs/workbench/contrib/notebook/common/notebookCommon';
+import { CellKind, CellUri, IResolvedNotebookEditorModel, NotebookDocumentBackupData, NotebookWorkingCopyTypeIdentifier, NotebookSetting, ICellOutput, ICell } from 'vs/workbench/contrib/notebook/common/notebookCommon';
 import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
 import { IUndoRedoService } from 'vs/platform/undoRedo/common/undoRedo';
 import { INotebookEditorModelResolverService } from 'vs/workbench/contrib/notebook/common/notebookEditorModelResolverService';
@@ -88,22 +88,23 @@ import 'vs/workbench/contrib/notebook/browser/contrib/viewportCustomMarkdown/vie
 import 'vs/workbench/contrib/notebook/browser/contrib/troubleshoot/layout';
 import 'vs/workbench/contrib/notebook/browser/contrib/breakpoints/notebookBreakpoints';
 import 'vs/workbench/contrib/notebook/browser/contrib/execute/executionEditorProgress';
-import 'vs/workbench/contrib/notebook/browser/contrib/execute/execution';
 
 // Diff Editor Contribution
 import 'vs/workbench/contrib/notebook/browser/diff/notebookDiffActions';
 
-// Output renderers registration
+// Services
 import { editorOptionsRegistry } from 'vs/editor/common/config/editorOptions';
 import { NotebookExecutionStateService } from 'vs/workbench/contrib/notebook/browser/notebookExecutionStateServiceImpl';
 import { NotebookExecutionService } from 'vs/workbench/contrib/notebook/browser/notebookExecutionServiceImpl';
 import { INotebookExecutionService } from 'vs/workbench/contrib/notebook/common/notebookExecutionService';
 import { INotebookKeymapService } from 'vs/workbench/contrib/notebook/common/notebookKeymapService';
-import { NotebookKeymapService } from 'vs/workbench/contrib/notebook/browser/notebookKeymapServiceImpl';
-import { NotebookCellTextModel } from 'vs/workbench/contrib/notebook/common/model/notebookCellTextModel';
+import { NotebookKeymapService } from 'vs/workbench/contrib/notebook/browser/services/notebookKeymapServiceImpl';
 import { PLAINTEXT_LANGUAGE_ID } from 'vs/editor/common/languages/modesRegistry';
 import { INotebookExecutionStateService } from 'vs/workbench/contrib/notebook/common/notebookExecutionStateService';
 import { ILanguageFeaturesService } from 'vs/editor/common/services/languageFeatures';
+import { NotebookInfo } from 'vs/editor/common/languageFeatureRegistry';
+import { COMMENTEDITOR_DECORATION_KEY } from 'vs/workbench/contrib/comments/browser/commentReply';
+import { ICodeEditorService } from 'vs/editor/browser/services/codeEditorService';
 
 /*--------------------------------------------------------------------------------------------- */
 
@@ -206,22 +207,49 @@ Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEdit
 );
 
 export class NotebookContribution extends Disposable implements IWorkbenchContribution {
+	private _uriComparisonKeyComputer?: IDisposable;
+
 	constructor(
 		@IUndoRedoService undoRedoService: IUndoRedoService,
 		@IConfigurationService configurationService: IConfigurationService,
+		@ICodeEditorService private readonly codeEditorService: ICodeEditorService,
 	) {
 		super();
 
-		const undoRedoPerCell = configurationService.getValue<boolean>(NotebookSetting.undoRedoPerCell);
+		this.updateCellUndoRedoComparisonKey(configurationService, undoRedoService);
 
-		this._register(undoRedoService.registerUriComparisonKeyComputer(CellUri.scheme, {
-			getComparisonKey: (uri: URI): string => {
-				if (undoRedoPerCell) {
-					return uri.toString();
-				}
-				return NotebookContribution._getCellUndoRedoComparisonKey(uri);
+		// Watch for changes to undoRedoPerCell setting
+		this._register(configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(NotebookSetting.undoRedoPerCell)) {
+				this.updateCellUndoRedoComparisonKey(configurationService, undoRedoService);
 			}
 		}));
+
+		// register comment decoration
+		this.codeEditorService.registerDecorationType('comment-controller', COMMENTEDITOR_DECORATION_KEY, {});
+	}
+
+	// Add or remove the cell undo redo comparison key based on the user setting
+	private updateCellUndoRedoComparisonKey(configurationService: IConfigurationService, undoRedoService: IUndoRedoService) {
+		const undoRedoPerCell = configurationService.getValue<boolean>(NotebookSetting.undoRedoPerCell);
+
+		if (!undoRedoPerCell) {
+			// Add comparison key to map cell => main document
+			if (!this._uriComparisonKeyComputer) {
+				this._uriComparisonKeyComputer = undoRedoService.registerUriComparisonKeyComputer(CellUri.scheme, {
+					getComparisonKey: (uri: URI): string => {
+						if (undoRedoPerCell) {
+							return uri.toString();
+						}
+						return NotebookContribution._getCellUndoRedoComparisonKey(uri);
+					}
+				});
+			}
+		} else {
+			// Dispose comparison key
+			this._uriComparisonKeyComputer?.dispose();
+			this._uriComparisonKeyComputer = undefined;
+		}
 	}
 
 	private static _getCellUndoRedoComparisonKey(uri: URI) {
@@ -231,6 +259,11 @@ export class NotebookContribution extends Disposable implements IWorkbenchContri
 		}
 
 		return data.notebook.toString();
+	}
+
+	override dispose(): void {
+		super.dispose();
+		this._uriComparisonKeyComputer?.dispose();
 	}
 }
 
@@ -395,7 +428,7 @@ class CellInfoContentProvider {
 	private _getResult(data: {
 		notebook: URI;
 		outputId?: string | undefined;
-	}, cell: NotebookCellTextModel) {
+	}, cell: ICell) {
 		let result: { content: string; mode: ILanguageSelection } | undefined = undefined;
 
 		const mode = this._languageService.createById('json');
@@ -445,7 +478,7 @@ class CellInfoContentProvider {
 
 		if (result) {
 			const model = this._modelService.createModel(result.content, result.mode, resource);
-			const cellModelListener = Event.any(cell.onDidChangeOutputs, cell.onDidChangeOutputItems)(() => {
+			const cellModelListener = Event.any(cell.onDidChangeOutputs ?? Event.None, cell.onDidChangeOutputItems ?? Event.None)(() => {
 				const newResult = this._getResult(data, cell);
 
 				if (!newResult) {
@@ -618,10 +651,10 @@ class NotebookLanguageSelectorScoreRefine {
 		@INotebookService private readonly _notebookService: INotebookService,
 		@ILanguageFeaturesService languageFeaturesService: ILanguageFeaturesService,
 	) {
-		languageFeaturesService.setNotebookTypeResolver(this._getNotebookType.bind(this));
+		languageFeaturesService.setNotebookTypeResolver(this._getNotebookInfo.bind(this));
 	}
 
-	private _getNotebookType(uri: URI): string | undefined {
+	private _getNotebookInfo(uri: URI): NotebookInfo | undefined {
 		const cellUri = CellUri.parse(uri);
 		if (!cellUri) {
 			return undefined;
@@ -630,7 +663,10 @@ class NotebookLanguageSelectorScoreRefine {
 		if (!notebook) {
 			return undefined;
 		}
-		return notebook.viewType;
+		return {
+			uri: notebook.uri,
+			type: notebook.viewType
+		};
 	}
 }
 
@@ -703,7 +739,7 @@ configurationRegistry.registerConfiguration({
 	properties: {
 		[NotebookSetting.displayOrder]: {
 			description: nls.localize('notebook.displayOrder.description', "Priority list for output mime types"),
-			type: ['array'],
+			type: 'array',
 			items: {
 				type: 'string'
 			},

@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationToken } from 'vs/base/common/cancellation';
-import { canceled, isCancellationError, onUnexpectedExternalError } from 'vs/base/common/errors';
+import { CancellationError, isCancellationError, onUnexpectedExternalError } from 'vs/base/common/errors';
 import { FuzzyScore } from 'vs/base/common/filters';
 import { DisposableStore, IDisposable, isDisposable } from 'vs/base/common/lifecycle';
 import { StopWatch } from 'vs/base/common/stopwatch';
@@ -24,8 +24,8 @@ import { CommandsRegistry } from 'vs/platform/commands/common/commands';
 import { RawContextKey } from 'vs/platform/contextkey/common/contextkey';
 import { LanguageFeatureRegistry } from 'vs/editor/common/languageFeatureRegistry';
 import { ILanguageFeaturesService } from 'vs/editor/common/services/languageFeatures';
-import { ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
 import { historyNavigationVisible } from 'vs/platform/history/browser/contextScopedHistoryWidget';
+import { InternalQuickSuggestionsOptions, QuickSuggestionsValue } from 'vs/editor/common/config/editorOptions';
 
 export const Context = {
 	Visible: historyNavigationVisible,
@@ -294,7 +294,7 @@ export async function provideSuggestionItems(
 
 	if (token.isCancellationRequested) {
 		disposables.dispose();
-		return Promise.reject<any>(canceled());
+		return Promise.reject<any>(new CancellationError());
 	}
 
 	return new CompletionItemModel(
@@ -400,34 +400,10 @@ interface SuggestController extends IEditorContribution {
 	triggerSuggest(onlyFrom?: Set<languages.CompletionItemProvider>): void;
 }
 
-
-const _once = new WeakMap<ICodeEditor, IDisposable>();
-
-export function showSimpleSuggestions(accessor: ServicesAccessor, editor: ICodeEditor, suggestions: languages.CompletionItem[]) {
-
-	const { completionProvider } = accessor.get(ILanguageFeaturesService);
-
-	const _provider = new class implements languages.CompletionItemProvider {
-
-		onlyOnceSuggestions: languages.CompletionItem[] = [];
-
-		provideCompletionItems(): languages.CompletionList {
-			let suggestions = this.onlyOnceSuggestions.slice(0);
-			let result = { suggestions };
-			this.onlyOnceSuggestions.length = 0;
-			dispo.dispose();
-			return result;
-		}
-	};
-
-	const dispo = completionProvider.register('*', _provider);
-	_once.get(editor)?.dispose();
-	_once.set(editor, dispo);
-
-	setTimeout(() => {
-		_provider.onlyOnceSuggestions.push(...suggestions);
-		editor.getContribution<SuggestController>('editor.contrib.suggestController')?.triggerSuggest(new Set<languages.CompletionItemProvider>().add(_provider));
-	}, 0);
+export function showSimpleSuggestions(editor: ICodeEditor, provider: languages.CompletionItemProvider) {
+	editor.getContribution<SuggestController>('editor.contrib.suggestController')?.triggerSuggest(
+		new Set<languages.CompletionItemProvider>().add(provider)
+	);
 }
 
 export interface ISuggestItemPreselector {
@@ -441,4 +417,24 @@ export interface ISuggestItemPreselector {
 	 * When -1 is returned, item preselectors with lower priority are asked.
 	*/
 	select(model: ITextModel, pos: IPosition, items: CompletionItem[]): number | -1;
+}
+
+
+export abstract class QuickSuggestionsOptions {
+
+	static isAllOff(config: InternalQuickSuggestionsOptions): boolean {
+		return config.other === 'off' && config.comments === 'off' && config.strings === 'off';
+	}
+
+	static isAllOn(config: InternalQuickSuggestionsOptions): boolean {
+		return config.other === 'on' && config.comments === 'on' && config.strings === 'on';
+	}
+
+	static valueFor(config: InternalQuickSuggestionsOptions, tokenType: languages.StandardTokenType): QuickSuggestionsValue {
+		switch (tokenType) {
+			case languages.StandardTokenType.Comment: return config.comments;
+			case languages.StandardTokenType.String: return config.strings;
+			default: return config.other;
+		}
+	}
 }

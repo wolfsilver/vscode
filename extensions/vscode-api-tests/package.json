@@ -6,6 +6,7 @@
   "license": "MIT",
   "enabledApiProposals": [
     "authSession",
+    "badges",
     "contribViewsRemote",
     "customEditorMove",
     "diffCommand",
@@ -23,6 +24,7 @@
     "notebookControllerKind",
     "notebookDebugOptions",
     "notebookDeprecated",
+    "notebookDocumentEvents",
     "notebookEditor",
     "notebookEditorDecorationType",
     "notebookEditorEdit",
@@ -199,7 +201,7 @@
   },
   "devDependencies": {
     "@types/mocha": "^8.2.0",
-    "@types/node": "14.x"
+    "@types/node": "16.x"
   },
   "repository": {
     "type": "git",

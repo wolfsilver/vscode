@@ -7,7 +7,6 @@ import { DisposableStore, dispose } from 'vs/base/common/lifecycle';
 import { ResourceMap } from 'vs/base/common/map';
 import { URI, UriComponents } from 'vs/base/common/uri';
 import { BoundModelReferenceCollection } from 'vs/workbench/api/browser/mainThreadDocuments';
-import { NotebookCellTextModel } from 'vs/workbench/contrib/notebook/common/model/notebookCellTextModel';
 import { NotebookTextModel } from 'vs/workbench/contrib/notebook/common/model/notebookTextModel';
 import { NotebookCellsChangeType } from 'vs/workbench/contrib/notebook/common/notebookCommon';
 import { INotebookEditorModelResolverService } from 'vs/workbench/contrib/notebook/common/notebookEditorModelResolverService';
@@ -62,7 +61,7 @@ export class MainThreadNotebookDocuments implements MainThreadNotebookDocumentsS
 						case NotebookCellsChangeType.ModelChange:
 							eventDto.rawEvents.push({
 								kind: e.kind,
-								changes: e.changes.map(diff => [diff[0], diff[1], diff[2].map(cell => NotebookDto.toNotebookCellDto(cell as NotebookCellTextModel))] as [number, number, NotebookCellDto[]])
+								changes: e.changes.map(diff => [diff[0], diff[1], diff[2].map(cell => NotebookDto.toNotebookCellDto(cell))] as [number, number, NotebookCellDto[]])
 							});
 							break;
 						case NotebookCellsChangeType.Move:
@@ -89,7 +88,8 @@ export class MainThreadNotebookDocuments implements MainThreadNotebookDocumentsS
 								append: e.append
 							});
 							break;
-						case NotebookCellsChangeType.ChangeLanguage:
+						case NotebookCellsChangeType.ChangeCellLanguage:
+						case NotebookCellsChangeType.ChangeCellContent:
 						case NotebookCellsChangeType.ChangeCellMetadata:
 						case NotebookCellsChangeType.ChangeCellInternalMetadata:
 							eventDto.rawEvents.push(e);
@@ -97,19 +97,17 @@ export class MainThreadNotebookDocuments implements MainThreadNotebookDocumentsS
 					}
 				}
 
+				const hasDocumentMetadataChangeEvent = event.rawEvents.find(e => e.kind === NotebookCellsChangeType.ChangeDocumentMetadata);
+
 				// using the model resolver service to know if the model is dirty or not.
 				// assuming this is the first listener it can mean that at first the model
 				// is marked as dirty and that another event is fired
 				this._proxy.$acceptModelChanged(
 					textModel.uri,
 					new SerializableObjectWithBuffers(eventDto),
-					this._notebookEditorModelResolverService.isDirty(textModel.uri)
+					this._notebookEditorModelResolverService.isDirty(textModel.uri),
+					hasDocumentMetadataChangeEvent ? textModel.metadata : undefined
 				);
-
-				const hasDocumentMetadataChangeEvent = event.rawEvents.find(e => e.kind === NotebookCellsChangeType.ChangeDocumentMetadata);
-				if (hasDocumentMetadataChangeEvent) {
-					this._proxy.$acceptDocumentPropertiesChanged(textModel.uri, { metadata: textModel.metadata });
-				}
 			}));
 
 			this._documentEventListenersMapping.set(textModel.uri, disposableStore);

@@ -12,14 +12,15 @@ import * as platform from 'vs/base/common/platform';
 import { joinPath, originalFSPath } from 'vs/base/common/resources';
 import { URI } from 'vs/base/common/uri';
 import { INativeWorkbenchEnvironmentService } from 'vs/workbench/services/environment/electron-sandbox/environmentService';
-import { BUILTIN_MANIFEST_CACHE_FILE, MANIFEST_CACHE_FOLDER, USER_MANIFEST_CACHE_FILE, IExtensionDescription } from 'vs/platform/extensions/common/extensions';
+import { BUILTIN_MANIFEST_CACHE_FILE, MANIFEST_CACHE_FOLDER, USER_MANIFEST_CACHE_FILE, IExtensionDescription, IRelaxedExtensionDescription } from 'vs/platform/extensions/common/extensions';
 import { IProductService } from 'vs/platform/product/common/productService';
 import { INotificationService, Severity } from 'vs/platform/notification/common/notification';
 import { IHostService } from 'vs/workbench/services/host/browser/host';
-import { Translations, ILog, ExtensionScanner, ExtensionScannerInput, IExtensionReference, IExtensionResolver, IExtensionScannerHost, IRelaxedExtensionDescription } from 'vs/workbench/services/extensions/common/extensionPoints';
+import { Translations, ILog, ExtensionScanner, ExtensionScannerInput, IExtensionReference, IExtensionResolver } from 'vs/workbench/services/extensions/common/extensionPoints';
 import { dedupExtensions } from 'vs/workbench/services/extensions/common/extensionsUtil';
-import { FileOperationResult, IFileService, toFileOperationResult } from 'vs/platform/files/common/files';
+import { IFileService } from 'vs/platform/files/common/files';
 import { VSBuffer } from 'vs/base/common/buffer';
+import { IExtensionManagementService } from 'vs/platform/extensionManagement/common/extensionManagement';
 
 interface IExtensionCacheData {
 	input: ExtensionScannerInput;
@@ -54,50 +55,14 @@ export class CachedExtensionScanner {
 		@INativeWorkbenchEnvironmentService private readonly _environmentService: INativeWorkbenchEnvironmentService,
 		@IHostService private readonly _hostService: IHostService,
 		@IProductService private readonly _productService: IProductService,
-		@IFileService private readonly _fileService: IFileService
+		@IFileService private readonly _fileService: IFileService,
+		@IExtensionManagementService private readonly _extensionManagementService: IExtensionManagementService
 	) {
 		this.scannedExtensions = new Promise<IExtensionDescription[]>((resolve, reject) => {
 			this._scannedExtensionsResolve = resolve;
 			this._scannedExtensionsReject = reject;
 		});
 		this.translationConfig = this._readTranslationConfig();
-	}
-
-	private _createExtensionScannerHost(log: ILog): IExtensionScannerHost {
-		return {
-			log: log,
-			readFile: async (filename) => {
-				try {
-					const contents = await this._fileService.readFile(URI.file(filename), { atomic: true });
-					return contents.value.toString();
-				} catch (err) {
-					if (toFileOperationResult(err) === FileOperationResult.FILE_NOT_FOUND) {
-						const nodeLikeError = new Error(`File not found`);
-						(<any>nodeLikeError).code = 'ENOENT';
-						throw nodeLikeError;
-					}
-					throw err;
-				}
-			},
-			existsFile: async (filename) => {
-				try {
-					const stat = await this._fileService.resolve(URI.file(filename));
-					return stat.isFile;
-				} catch (err) {
-					return false;
-				}
-			},
-			readDirsInDir: async (dirPath) => {
-				const stat = await this._fileService.resolve(URI.file(dirPath));
-				const result: string[] = [];
-				for (const child of (stat.children || [])) {
-					if (child.isDirectory) {
-						result.push(child.name);
-					}
-				}
-				return result;
-			}
-		};
 	}
 
 	public async scanSingleExtension(path: string, isBuiltin: boolean, log: ILog): Promise<IExtensionDescription | null> {
@@ -108,8 +73,9 @@ export class CachedExtensionScanner {
 		const date = this._productService.date;
 		const devMode = !this._environmentService.isBuilt;
 		const locale = platform.language;
-		const input = new ExtensionScannerInput(version, date, commit, locale, devMode, path, isBuiltin, false, translations);
-		return ExtensionScanner.scanSingleExtension(input, this._createExtensionScannerHost(log));
+		const targetPlatform = await this._extensionManagementService.getTargetPlatform();
+		const input = new ExtensionScannerInput(version, date, commit, locale, devMode, path, isBuiltin, false, targetPlatform, translations);
+		return ExtensionScanner.scanSingleExtension(input, log, this._fileService);
 	}
 
 	public async startScanningExtensions(log: ILog): Promise<void> {
@@ -127,7 +93,7 @@ export class CachedExtensionScanner {
 		const cacheFolder = path.join(this._environmentService.userDataPath, MANIFEST_CACHE_FOLDER);
 		const cacheFile = path.join(cacheFolder, cacheKey);
 
-		const expected = JSON.parse(JSON.stringify(await ExtensionScanner.scanExtensions(input, this._createExtensionScannerHost(new NullLogger()))));
+		const expected = JSON.parse(JSON.stringify(await ExtensionScanner.scanExtensions(input, new NullLogger(), this._fileService)));
 
 		const cacheContents = await this._readExtensionCache(cacheKey);
 		if (!cacheContents) {
@@ -192,7 +158,7 @@ export class CachedExtensionScanner {
 	private async _scanExtensionsWithCache(cacheKey: string, input: ExtensionScannerInput, log: ILog): Promise<IExtensionDescription[]> {
 		if (input.devMode) {
 			// Do not cache when running out of sources...
-			return ExtensionScanner.scanExtensions(input, this._createExtensionScannerHost(log));
+			return ExtensionScanner.scanExtensions(input, log, this._fileService);
 		}
 
 		try {
@@ -222,7 +188,7 @@ export class CachedExtensionScanner {
 		}
 
 		const counterLogger = new CounterLogger(log);
-		const result = await ExtensionScanner.scanExtensions(input, this._createExtensionScannerHost(counterLogger));
+		const result = await ExtensionScanner.scanExtensions(input, counterLogger, this._fileService);
 		if (counterLogger.errorCnt === 0) {
 			// Nothing bad happened => cache the result
 			const cacheContents: IExtensionCacheData = {
@@ -247,7 +213,7 @@ export class CachedExtensionScanner {
 		return Object.create(null);
 	}
 
-	private _scanInstalledExtensions(
+	private async _scanInstalledExtensions(
 		log: ILog,
 		translations: Translations
 	): Promise<{ system: IExtensionDescription[]; user: IExtensionDescription[]; development: IExtensionDescription[] }> {
@@ -257,10 +223,11 @@ export class CachedExtensionScanner {
 		const date = this._productService.date;
 		const devMode = !this._environmentService.isBuilt;
 		const locale = platform.language;
+		const targetPlatform = await this._extensionManagementService.getTargetPlatform();
 
 		const builtinExtensions = this._scanExtensionsWithCache(
 			BUILTIN_MANIFEST_CACHE_FILE,
-			new ExtensionScannerInput(version, date, commit, locale, devMode, getSystemExtensionsRoot(), true, false, translations),
+			new ExtensionScannerInput(version, date, commit, locale, devMode, getSystemExtensionsRoot(), true, false, targetPlatform, translations),
 			log
 		);
 
@@ -273,17 +240,17 @@ export class CachedExtensionScanner {
 			const controlFile = this._fileService.readFile(URI.file(controlFilePath))
 				.then<IBuiltInExtensionControl>(raw => JSON.parse(raw.value.toString()), () => ({} as any));
 
-			const input = new ExtensionScannerInput(version, date, commit, locale, devMode, getExtraDevSystemExtensionsRoot(), true, false, translations);
+			const input = new ExtensionScannerInput(version, date, commit, locale, devMode, getExtraDevSystemExtensionsRoot(), true, false, targetPlatform, translations);
 			const extraBuiltinExtensions = Promise.all([builtInExtensions, controlFile])
 				.then(([builtInExtensions, control]) => new ExtraBuiltInExtensionResolver(builtInExtensions, control))
-				.then(resolver => ExtensionScanner.scanExtensions(input, this._createExtensionScannerHost(log), resolver));
+				.then(resolver => ExtensionScanner.scanExtensions(input, log, this._fileService, resolver));
 
 			finalBuiltinExtensions = ExtensionScanner.mergeBuiltinExtensions(builtinExtensions, extraBuiltinExtensions);
 		}
 
 		const userExtensions = (this._scanExtensionsWithCache(
 			USER_MANIFEST_CACHE_FILE,
-			new ExtensionScannerInput(version, date, commit, locale, devMode, this._environmentService.extensionsPath, false, false, translations),
+			new ExtensionScannerInput(version, date, commit, locale, devMode, this._environmentService.extensionsPath, false, false, targetPlatform, translations),
 			log
 		));
 
@@ -292,8 +259,9 @@ export class CachedExtensionScanner {
 		if (this._environmentService.isExtensionDevelopment && this._environmentService.extensionDevelopmentLocationURI) {
 			const extDescsP = this._environmentService.extensionDevelopmentLocationURI.filter(extLoc => extLoc.scheme === Schemas.file).map(extLoc => {
 				return ExtensionScanner.scanOneOrMultipleExtensions(
-					new ExtensionScannerInput(version, date, commit, locale, devMode, originalFSPath(extLoc), false, true, translations),
-					this._createExtensionScannerHost(log)
+					new ExtensionScannerInput(version, date, commit, locale, devMode, originalFSPath(extLoc), false, true, targetPlatform, translations),
+					log,
+					this._fileService
 				);
 			});
 			developedExtensions = Promise.all(extDescsP).then((extDescArrays: IExtensionDescription[][]) => {
@@ -311,7 +279,8 @@ export class CachedExtensionScanner {
 			const development = extensionDescriptions[2];
 			return { system, user, development };
 		}).then(undefined, err => {
-			log.error('', err);
+			log.error(`Error scanning installed extensions:`);
+			log.error(err);
 			return { system: [], user: [], development: [] };
 		});
 	}
@@ -362,24 +331,27 @@ class CounterLogger implements ILog {
 	constructor(private readonly _actual: ILog) {
 	}
 
-	public error(source: string, message: string): void {
-		this._actual.error(source, message);
+	public error(message: string | Error): void {
+		this.errorCnt++;
+		this._actual.error(message);
 	}
 
-	public warn(source: string, message: string): void {
-		this._actual.warn(source, message);
+	public warn(message: string): void {
+		this.warnCnt++;
+		this._actual.warn(message);
 	}
 
-	public info(source: string, message: string): void {
-		this._actual.info(source, message);
+	public info(message: string): void {
+		this.infoCnt++;
+		this._actual.info(message);
 	}
 }
 
 class NullLogger implements ILog {
-	public error(source: string, message: string): void {
+	public error(message: string | Error): void {
 	}
-	public warn(source: string, message: string): void {
+	public warn(message: string): void {
 	}
-	public info(source: string, message: string): void {
+	public info(message: string): void {
 	}
 }

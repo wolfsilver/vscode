@@ -23,7 +23,7 @@ import { IUntitledTextEditorService, UntitledTextEditorService } from 'vs/workbe
 import { IWorkspaceContextService, IWorkspaceIdentifier } from 'vs/platform/workspace/common/workspace';
 import { ILifecycleService, ShutdownReason, StartupKind, LifecyclePhase, WillShutdownEvent, BeforeShutdownErrorEvent, InternalBeforeShutdownEvent } from 'vs/workbench/services/lifecycle/common/lifecycle';
 import { ServiceCollection } from 'vs/platform/instantiation/common/serviceCollection';
-import { FileOperationEvent, IFileService, IFileStat, IFileStatResult, FileChangesEvent, IResolveFileOptions, ICreateFileOptions, IFileSystemProvider, FileSystemProviderCapabilities, IFileChange, IWatchOptions, IStat, FileType, FileDeleteOptions, FileOverwriteOptions, FileWriteOptions, FileOpenOptions, IFileStatWithMetadata, IResolveMetadataFileOptions, IWriteFileOptions, IReadFileOptions, IFileContent, IFileStreamContent, FileOperationError, IFileSystemProviderWithFileReadStreamCapability, FileReadStreamOptions, IReadFileStreamOptions, IFileSystemProviderCapabilitiesChangeEvent, IFileStatWithPartialMetadata } from 'vs/platform/files/common/files';
+import { FileOperationEvent, IFileService, IFileStat, IFileStatResult, FileChangesEvent, IResolveFileOptions, ICreateFileOptions, IFileSystemProvider, FileSystemProviderCapabilities, IFileChange, IWatchOptions, IStat, FileType, IFileDeleteOptions, IFileOverwriteOptions, IFileWriteOptions, IFileOpenOptions, IFileStatWithMetadata, IResolveMetadataFileOptions, IWriteFileOptions, IReadFileOptions, IFileContent, IFileStreamContent, FileOperationError, IFileSystemProviderWithFileReadStreamCapability, IFileReadStreamOptions, IReadFileStreamOptions, IFileSystemProviderCapabilitiesChangeEvent, IFileStatWithPartialMetadata } from 'vs/platform/files/common/files';
 import { IModelService } from 'vs/editor/common/services/model';
 import { LanguageService } from 'vs/editor/common/services/languageService';
 import { ModelService } from 'vs/editor/common/services/modelService';
@@ -98,7 +98,7 @@ import { IInputBox, IInputOptions, IPickOptions, IQuickInputButton, IQuickInputS
 import { QuickInputService } from 'vs/workbench/services/quickinput/browser/quickInputService';
 import { IListService } from 'vs/platform/list/browser/listService';
 import { win32, posix } from 'vs/base/common/path';
-import { TestContextService, TestStorageService, TestTextResourcePropertiesService, TestExtensionService, TestProductService } from 'vs/workbench/test/common/workbenchTestServices';
+import { TestContextService, TestStorageService, TestTextResourcePropertiesService, TestExtensionService, TestProductService, createFileStat } from 'vs/workbench/test/common/workbenchTestServices';
 import { IViewsService, IView, ViewContainer, ViewContainerLocation } from 'vs/workbench/common/views';
 import { IPaneComposite } from 'vs/workbench/common/panecomposite';
 import { IUriIdentityService } from 'vs/platform/uriIdentity/common/uriIdentity';
@@ -854,7 +854,7 @@ export class TestEditorGroupView implements IEditorGroupView {
 	copyEditor(_editor: EditorInput, _target: IEditorGroup, _options?: IEditorOptions): void { }
 	copyEditors(_editors: EditorInputWithOptions[], _target: IEditorGroup): void { }
 	async closeEditor(_editor?: EditorInput, options?: ICloseEditorOptions): Promise<boolean> { return true; }
-	async closeEditors(_editors: EditorInput[] | ICloseEditorsFilter, options?: ICloseEditorOptions): Promise<void> { }
+	async closeEditors(_editors: EditorInput[] | ICloseEditorsFilter, options?: ICloseEditorOptions): Promise<boolean> { return true; }
 	async closeAllEditors(options?: ICloseAllEditorsOptions): Promise<void> { }
 	async replaceEditors(_editors: IEditorReplacement[]): Promise<void> { }
 	pinEditor(_editor?: EditorInput): void { }
@@ -929,8 +929,10 @@ export class TestEditorService implements EditorServiceImpl {
 	openEditor(editor: IResourceEditorInput | IUntitledTextResourceEditorInput, group?: PreferredGroup): Promise<IEditorPane | undefined>;
 	openEditor(editor: IResourceDiffEditorInput, group?: PreferredGroup): Promise<ITextDiffEditorPane | undefined>;
 	async openEditor(editor: EditorInput | IUntypedEditorInput, optionsOrGroup?: IEditorOptions | PreferredGroup, group?: PreferredGroup): Promise<IEditorPane | undefined> {
-		throw new Error('not implemented');
+		return undefined;
 	}
+	async closeEditor(editor: IEditorIdentifier, options?: ICloseEditorOptions): Promise<void> { }
+	async closeEditors(editors: IEditorIdentifier[], options?: ICloseEditorOptions): Promise<void> { }
 	doResolveEditorOpenRequest(editor: EditorInput | IUntypedEditorInput): [IEditorGroup, EditorInput, IEditorOptions | undefined] | undefined {
 		if (!this.editorGroupService) {
 			return undefined;
@@ -978,20 +980,8 @@ export class TestFileService implements IFileService {
 
 	resolve(resource: URI, _options: IResolveMetadataFileOptions): Promise<IFileStatWithMetadata>;
 	resolve(resource: URI, _options?: IResolveFileOptions): Promise<IFileStat>;
-	resolve(resource: URI, _options?: IResolveFileOptions): Promise<IFileStat> {
-		return Promise.resolve({
-			resource,
-			etag: Date.now().toString(),
-			encoding: 'utf8',
-			mtime: Date.now(),
-			size: 42,
-			isFile: true,
-			isDirectory: false,
-			isSymbolicLink: false,
-			readonly: this.readonly,
-			name: basename(resource),
-			children: undefined
-		});
+	async resolve(resource: URI, _options?: IResolveFileOptions): Promise<IFileStat> {
+		return createFileStat(resource, this.readonly);
 	}
 
 	stat(resource: URI): Promise<IFileStatWithPartialMetadata> {
@@ -1010,44 +1000,30 @@ export class TestFileService implements IFileService {
 
 	readShouldThrowError: Error | undefined = undefined;
 
-	readFile(resource: URI, options?: IReadFileOptions | undefined): Promise<IFileContent> {
+	async readFile(resource: URI, options?: IReadFileOptions | undefined): Promise<IFileContent> {
 		if (this.readShouldThrowError) {
 			throw this.readShouldThrowError;
 		}
 
 		this.lastReadFileUri = resource;
 
-		return Promise.resolve({
-			resource: resource,
-			value: VSBuffer.fromString(this.content),
-			etag: 'index.txt',
-			encoding: 'utf8',
-			mtime: Date.now(),
-			ctime: Date.now(),
-			name: basename(resource),
-			readonly: this.readonly,
-			size: 1
-		});
+		return {
+			...createFileStat(resource, this.readonly),
+			value: VSBuffer.fromString(this.content)
+		};
 	}
 
-	readFileStream(resource: URI, options?: IReadFileStreamOptions | undefined): Promise<IFileStreamContent> {
+	async readFileStream(resource: URI, options?: IReadFileStreamOptions | undefined): Promise<IFileStreamContent> {
 		if (this.readShouldThrowError) {
 			throw this.readShouldThrowError;
 		}
 
 		this.lastReadFileUri = resource;
 
-		return Promise.resolve({
-			resource,
-			value: bufferToStream(VSBuffer.fromString(this.content)),
-			etag: 'index.txt',
-			encoding: 'utf8',
-			mtime: Date.now(),
-			ctime: Date.now(),
-			size: 1,
-			readonly: this.readonly,
-			name: basename(resource)
-		});
+		return {
+			...createFileStat(resource, this.readonly),
+			value: bufferToStream(VSBuffer.fromString(this.content))
+		};
 	}
 
 	writeShouldThrowError: Error | undefined = undefined;
@@ -1059,23 +1035,12 @@ export class TestFileService implements IFileService {
 			throw this.writeShouldThrowError;
 		}
 
-		return ({
-			resource,
-			etag: 'index.txt',
-			mtime: Date.now(),
-			ctime: Date.now(),
-			size: 42,
-			isFile: true,
-			isDirectory: false,
-			isSymbolicLink: false,
-			readonly: this.readonly,
-			name: basename(resource),
-			children: undefined
-		});
+		return createFileStat(resource, this.readonly);
 	}
 
 	move(_source: URI, _target: URI, _overwrite?: boolean): Promise<IFileStatWithMetadata> { return Promise.resolve(null!); }
 	copy(_source: URI, _target: URI, _overwrite?: boolean): Promise<IFileStatWithMetadata> { return Promise.resolve(null!); }
+	async cloneFile(_source: URI, _target: URI): Promise<void> { }
 	createFile(_resource: URI, _content?: VSBuffer | VSBufferReadable, _options?: ICreateFileOptions): Promise<IFileStatWithMetadata> { return Promise.resolve(null!); }
 	createFolder(_resource: URI): Promise<IFileStatWithMetadata> { return Promise.resolve(null!); }
 
@@ -1175,7 +1140,7 @@ export class InMemoryTestWorkingCopyBackupService extends BrowserWorkingCopyBack
 		const logService = new NullLogService();
 		const fileService = new FileService(logService);
 		fileService.registerProvider(Schemas.file, new InMemoryFileSystemProvider());
-		fileService.registerProvider(Schemas.userData, new InMemoryFileSystemProvider());
+		fileService.registerProvider(Schemas.vscodeUserData, new InMemoryFileSystemProvider());
 
 		super(new TestContextService(TestWorkspace), environmentService, fileService, logService);
 
@@ -1253,6 +1218,7 @@ export class TestLifecycleService implements ILifecycleService {
 				this.shutdownJoiners.push(p);
 			},
 			force: () => { /* No-Op in tests */ },
+			token: CancellationToken.None,
 			reason
 		});
 	}
@@ -1286,6 +1252,7 @@ export class TestWillShutdownEvent implements WillShutdownEvent {
 
 	value: Promise<void>[] = [];
 	reason = ShutdownReason.CLOSE;
+	token = CancellationToken.None;
 
 	join(promise: Promise<void>, id: string): void {
 		this.value.push(promise);
@@ -1333,20 +1300,20 @@ export class RemoteFileSystemProvider implements IFileSystemProvider {
 	stat(resource: URI): Promise<IStat> { return this.wrappedFsp.stat(this.toFileResource(resource)); }
 	mkdir(resource: URI): Promise<void> { return this.wrappedFsp.mkdir(this.toFileResource(resource)); }
 	readdir(resource: URI): Promise<[string, FileType][]> { return this.wrappedFsp.readdir(this.toFileResource(resource)); }
-	delete(resource: URI, opts: FileDeleteOptions): Promise<void> { return this.wrappedFsp.delete(this.toFileResource(resource), opts); }
+	delete(resource: URI, opts: IFileDeleteOptions): Promise<void> { return this.wrappedFsp.delete(this.toFileResource(resource), opts); }
 
-	rename(from: URI, to: URI, opts: FileOverwriteOptions): Promise<void> { return this.wrappedFsp.rename(this.toFileResource(from), this.toFileResource(to), opts); }
-	copy(from: URI, to: URI, opts: FileOverwriteOptions): Promise<void> { return this.wrappedFsp.copy!(this.toFileResource(from), this.toFileResource(to), opts); }
+	rename(from: URI, to: URI, opts: IFileOverwriteOptions): Promise<void> { return this.wrappedFsp.rename(this.toFileResource(from), this.toFileResource(to), opts); }
+	copy(from: URI, to: URI, opts: IFileOverwriteOptions): Promise<void> { return this.wrappedFsp.copy!(this.toFileResource(from), this.toFileResource(to), opts); }
 
 	readFile(resource: URI): Promise<Uint8Array> { return this.wrappedFsp.readFile!(this.toFileResource(resource)); }
-	writeFile(resource: URI, content: Uint8Array, opts: FileWriteOptions): Promise<void> { return this.wrappedFsp.writeFile!(this.toFileResource(resource), content, opts); }
+	writeFile(resource: URI, content: Uint8Array, opts: IFileWriteOptions): Promise<void> { return this.wrappedFsp.writeFile!(this.toFileResource(resource), content, opts); }
 
-	open(resource: URI, opts: FileOpenOptions): Promise<number> { return this.wrappedFsp.open!(this.toFileResource(resource), opts); }
+	open(resource: URI, opts: IFileOpenOptions): Promise<number> { return this.wrappedFsp.open!(this.toFileResource(resource), opts); }
 	close(fd: number): Promise<void> { return this.wrappedFsp.close!(fd); }
 	read(fd: number, pos: number, data: Uint8Array, offset: number, length: number): Promise<number> { return this.wrappedFsp.read!(fd, pos, data, offset, length); }
 	write(fd: number, pos: number, data: Uint8Array, offset: number, length: number): Promise<number> { return this.wrappedFsp.write!(fd, pos, data, offset, length); }
 
-	readFileStream(resource: URI, opts: FileReadStreamOptions, token: CancellationToken): ReadableStreamEvents<Uint8Array> { return this.wrappedFsp.readFileStream!(this.toFileResource(resource), opts, token); }
+	readFileStream(resource: URI, opts: IFileReadStreamOptions, token: CancellationToken): ReadableStreamEvents<Uint8Array> { return this.wrappedFsp.readFileStream!(this.toFileResource(resource), opts, token); }
 
 	private toFileResource(resource: URI): URI { return resource.with({ scheme: Schemas.file, authority: '' }); }
 }
@@ -1698,7 +1665,7 @@ export class TestPathService implements IPathService {
 
 	declare readonly _serviceBrand: undefined;
 
-	constructor(private readonly fallbackUserHome: URI = URI.from({ scheme: Schemas.vscodeRemote, path: '/' })) { }
+	constructor(private readonly fallbackUserHome: URI = URI.from({ scheme: Schemas.vscodeRemote, path: '/' }), public defaultUriScheme = Schemas.vscodeRemote) { }
 
 	hasValidBasename(resource: URI, basename?: string): Promise<boolean>;
 	hasValidBasename(resource: URI, os: OperatingSystem, basename?: string): boolean;
@@ -1718,8 +1685,6 @@ export class TestPathService implements IPathService {
 	async fileURI(path: string): Promise<URI> {
 		return URI.file(path);
 	}
-
-	readonly defaultUriScheme = Schemas.vscodeRemote;
 }
 
 export class TestTextFileEditorModelManager extends TextFileEditorModelManager {

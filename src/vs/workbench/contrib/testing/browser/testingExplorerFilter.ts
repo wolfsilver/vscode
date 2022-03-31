@@ -19,9 +19,9 @@ import { StorageScope, StorageTarget } from 'vs/platform/storage/common/storage'
 import { IThemeService, ThemeIcon } from 'vs/platform/theme/common/themeService';
 import { attachSuggestEnabledInputBoxStyler, ContextScopedSuggestEnabledInputWithHistory, SuggestEnabledInputWithHistory, SuggestResultsProvider } from 'vs/workbench/contrib/codeEditor/browser/suggestEnabledInput/suggestEnabledInput';
 import { testingFilterIcon } from 'vs/workbench/contrib/testing/browser/icons';
-import { Testing } from 'vs/workbench/contrib/testing/common/constants';
+import { TestCommandId } from 'vs/workbench/contrib/testing/common/constants';
 import { StoredValue } from 'vs/workbench/contrib/testing/common/storedValue';
-import { denamespaceTestTag } from 'vs/workbench/contrib/testing/common/testCollection';
+import { denamespaceTestTag } from 'vs/workbench/contrib/testing/common/testTypes';
 import { ITestExplorerFilterState, TestFilterTerm } from 'vs/workbench/contrib/testing/common/testExplorerFilterState';
 import { ITestService } from 'vs/workbench/contrib/testing/common/testService';
 
@@ -78,7 +78,7 @@ export class TestingExplorerFilter extends BaseActionViewItem {
 						const insertText = `@${ctrlId}:${tagId}`;
 						return ({
 							label: `@${ctrlId}:${tagId}`,
-							detail: tag.ctrlLabel,
+							detail: this.testService.collection.getNodeById(ctrlId)?.item.label,
 							insertText: tagId.includes(' ') ? `@${ctrlId}:"${tagId.replace(/(["\\])/g, '\\$1')}"` : insertText,
 						});
 					}),
@@ -235,7 +235,7 @@ class FiltersDropdownMenuActionViewItem extends DropdownMenuActionViewItem {
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
-			id: Testing.FilterActionId,
+			id: TestCommandId.FilterAction,
 			title: localize('filter', "Filter"),
 		});
 	}

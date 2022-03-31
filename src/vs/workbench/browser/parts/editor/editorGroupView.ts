@@ -854,8 +854,8 @@ export class EditorGroupView extends Themable implements IEditorGroupView {
 		return this.model.previewEditor;
 	}
 
-	isPinned(editor: EditorInput): boolean {
-		return this.model.isPinned(editor);
+	isPinned(editorOrIndex: EditorInput | number): boolean {
+		return this.model.isPinned(editorOrIndex);
 	}
 
 	isSticky(editorOrIndex: EditorInput | number): boolean {
@@ -877,16 +877,27 @@ export class EditorGroupView extends Themable implements IEditorGroupView {
 	findEditors(resource: URI, options?: IFindEditorOptions): EditorInput[] {
 		const canonicalResource = this.uriIdentityService.asCanonicalUri(resource);
 		return this.getEditors(EditorsOrder.SEQUENTIAL).filter(editor => {
-			let matches = editor.resource && isEqual(editor.resource, canonicalResource);
-
-			// Support side by side editor primary side if specified
-			if (!matches && options?.supportSideBySide === SideBySideEditor.PRIMARY) {
-				const primaryResource = EditorResourceAccessor.getCanonicalUri(editor, { supportSideBySide: SideBySideEditor.PRIMARY });
-
-				matches = primaryResource && isEqual(primaryResource, canonicalResource);
+			if (editor.resource && isEqual(editor.resource, canonicalResource)) {
+				return true;
 			}
 
-			return matches;
+			// Support side by side editor primary side if specified
+			if (options?.supportSideBySide === SideBySideEditor.PRIMARY || options?.supportSideBySide === SideBySideEditor.ANY) {
+				const primaryResource = EditorResourceAccessor.getCanonicalUri(editor, { supportSideBySide: SideBySideEditor.PRIMARY });
+				if (primaryResource && isEqual(primaryResource, canonicalResource)) {
+					return true;
+				}
+			}
+
+			// Support side by side editor secondary side if specified
+			if (options?.supportSideBySide === SideBySideEditor.SECONDARY || options?.supportSideBySide === SideBySideEditor.ANY) {
+				const secondaryResource = EditorResourceAccessor.getCanonicalUri(editor, { supportSideBySide: SideBySideEditor.SECONDARY });
+				if (secondaryResource && isEqual(secondaryResource, canonicalResource)) {
+					return true;
+				}
+			}
+
+			return false;
 		});
 	}
 
@@ -1699,9 +1710,9 @@ export class EditorGroupView extends Themable implements IEditorGroupView {
 
 	//#region closeEditors()
 
-	async closeEditors(args: EditorInput[] | ICloseEditorsFilter, options?: ICloseEditorOptions): Promise<void> {
+	async closeEditors(args: EditorInput[] | ICloseEditorsFilter, options?: ICloseEditorOptions): Promise<boolean> {
 		if (this.isEmpty) {
-			return;
+			return true;
 		}
 
 		const editors = this.doGetEditorsToClose(args);
@@ -1709,11 +1720,13 @@ export class EditorGroupView extends Themable implements IEditorGroupView {
 		// Check for dirty and veto
 		const veto = await this.handleDirtyClosing(editors.slice(0));
 		if (veto) {
-			return;
+			return false;
 		}
 
 		// Do close
 		this.doCloseEditors(editors, options);
+
+		return true;
 	}
 
 	private doGetEditorsToClose(args: EditorInput[] | ICloseEditorsFilter): EditorInput[] {
@@ -2010,7 +2023,7 @@ export interface EditorReplacement extends IEditorReplacement {
 registerThemingParticipant((theme, collector) => {
 
 	// Letterpress
-	const letterpress = `./media/letterpress${theme.type === 'dark' ? '-dark' : theme.type === 'hc' ? '-hc' : ''}.svg`;
+	const letterpress = `./media/letterpress-${theme.type}.svg`;
 	collector.addRule(`
 		.monaco-workbench .part.editor > .content .editor-group-container.empty .editor-group-letterpress {
 			background-image: ${asCSSUrl(FileAccess.asBrowserUri(letterpress, require))}

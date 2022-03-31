@@ -37,7 +37,7 @@ export interface MarkdownRenderOptions extends FormattedTextRenderOptions {
 /**
  * Low-level way create a html element from a markdown string.
  *
- * **Note** that for most cases you should be using [`MarkdownRenderer`](./src/vs/editor/browser/core/markdownRenderer.ts)
+ * **Note** that for most cases you should be using [`MarkdownRenderer`](./src/vs/editor/contrib/markdownRenderer/browser/markdownRenderer.ts)
  * which comes with support for pretty code block rendering and which uses the default way of handling links.
  */
 export function renderMarkdown(markdown: IMarkdownString, options: MarkdownRenderOptions = {}, markedOptions: MarkedOptions = {}): { element: HTMLElement; dispose: () => void } {
@@ -326,27 +326,13 @@ function sanitizeRenderedMarkdown(
 		}
 	});
 
-	// build an anchor to map URLs to
-	const anchor = document.createElement('a');
-
-	// https://github.com/cure53/DOMPurify/blob/main/demos/hooks-scheme-allowlist.html
-	dompurify.addHook('afterSanitizeAttributes', (node) => {
-		// check all href/src attributes for validity
-		for (const attr of ['href', 'src']) {
-			if (node.hasAttribute(attr)) {
-				anchor.href = node.getAttribute(attr) as string;
-				if (!allowedSchemes.includes(anchor.protocol.replace(/:$/, ''))) {
-					node.removeAttribute(attr);
-				}
-			}
-		}
-	});
+	const hook = DOM.hookDomPurifyHrefAndSrcSanitizer(allowedSchemes);
 
 	try {
 		return dompurify.sanitize(renderedMarkdown, { ...config, RETURN_TRUSTED_TYPE: true });
 	} finally {
 		dompurify.removeHook('uponSanitizeAttribute');
-		dompurify.removeHook('afterSanitizeAttributes');
+		hook.dispose();
 	}
 }
 

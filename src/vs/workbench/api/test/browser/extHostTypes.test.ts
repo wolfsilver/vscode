@@ -10,6 +10,7 @@ import { isWindows } from 'vs/base/common/platform';
 import { assertType } from 'vs/base/common/types';
 import { Mimes } from 'vs/base/common/mime';
 import { MarshalledId } from 'vs/base/common/marshallingIds';
+import { CancellationError } from 'vs/base/common/errors';
 
 function assertToJSON(a: any, expected: any) {
 	const raw = JSON.stringify(a);
@@ -565,6 +566,14 @@ suite('ExtHostTypes', function () {
 		assert.ok(error instanceof types.FileSystemError);
 	});
 
+	test('CancellationError', function () {
+		// The CancellationError-type is used internally and exported as API. Make sure that at
+		// its name and message are `Canceled`
+		const err = new CancellationError();
+		assert.strictEqual(err.name, 'Canceled');
+		assert.strictEqual(err.message, 'Canceled');
+	});
+
 	test('CodeActionKind contains', () => {
 		assert.ok(types.CodeActionKind.RefactorExtract.contains(types.CodeActionKind.RefactorExtract));
 		assert.ok(types.CodeActionKind.RefactorExtract.contains(types.CodeActionKind.RefactorExtract.append('other')));
@@ -679,7 +688,7 @@ suite('ExtHostTypes', function () {
 		// --- JSON
 
 		item = types.NotebookCellOutputItem.json(1);
-		assert.strictEqual(item.mime, 'application/json');
+		assert.strictEqual(item.mime, 'text/x-json');
 		assert.deepStrictEqual(item.data, new TextEncoder().encode(JSON.stringify(1)));
 
 		item = types.NotebookCellOutputItem.json(1, 'foo/bar');
@@ -687,11 +696,11 @@ suite('ExtHostTypes', function () {
 		assert.deepStrictEqual(item.data, new TextEncoder().encode(JSON.stringify(1)));
 
 		item = types.NotebookCellOutputItem.json(true);
-		assert.strictEqual(item.mime, 'application/json');
+		assert.strictEqual(item.mime, 'text/x-json');
 		assert.deepStrictEqual(item.data, new TextEncoder().encode(JSON.stringify(true)));
 
 		item = types.NotebookCellOutputItem.json([true, 1, 'ddd']);
-		assert.strictEqual(item.mime, 'application/json');
+		assert.strictEqual(item.mime, 'text/x-json');
 		assert.deepStrictEqual(item.data, new TextEncoder().encode(JSON.stringify([true, 1, 'ddd'], undefined, '\t')));
 
 		// --- text

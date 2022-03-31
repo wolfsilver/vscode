@@ -2065,6 +2065,18 @@ declare module 'vscode' {
 		readonly language?: string;
 
 		/**
+		 * The {@link NotebookDocument.notebookType type} of a notebook, like `jupyter-notebook`. This allows
+		 * to narrow down on the type of a notebook that a {@link NotebookCell.document cell document} belongs to.
+		 *
+		 * *Note* that setting the `notebookType`-property changes how `scheme` and `pattern` are interpreted. When set
+		 * they are evaluated against the {@link NotebookDocument.uri notebook uri}, not the document uri.
+		 *
+		 * @example <caption>Match python document inside jupyter notebook that aren't stored yet (`untitled`)</caption>
+		 * { language: 'python', notebookType: 'jupyter-notebook', scheme: 'untitled' }
+		 */
+		readonly notebookType?: string;
+
+		/**
 		 * A Uri {@link Uri.scheme scheme}, like `file` or `untitled`.
 		 */
 		readonly scheme?: string;
@@ -3237,7 +3249,7 @@ declare module 'vscode' {
 		/**
 		 * Include the declaration of the current symbol.
 		 */
-		includeDeclaration: boolean;
+		readonly includeDeclaration: boolean;
 	}
 
 	/**
@@ -4517,7 +4529,6 @@ declare module 'vscode' {
 		 *
 		 * @param range The range the color appears in. Must not be empty.
 		 * @param color The value of the color.
-		 * @param format The format in which this color is currently formatted.
 		 */
 		constructor(range: Range, color: Color);
 	}
@@ -4675,6 +4686,9 @@ declare module 'vscode' {
 
 		/**
 		 * The tooltip text when you hover over this item.
+		 *
+		 * *Note* that this property can be set late during
+		 * {@link InlayHintsProvider.resolveInlayHint resolving} of inlay hints.
 		 */
 		tooltip?: string | MarkdownString | undefined;
 
@@ -4689,6 +4703,9 @@ declare module 'vscode' {
 		 *
 		 * *Note* that edits are expected to change the document so that the inlay hint (or its nearest variant) is
 		 * now part of the document and the inlay hint itself is now obsolete.
+		 *
+		 * *Note* that this property can be set late during
+		 * {@link InlayHintsProvider.resolveInlayHint resolving} of inlay hints.
 		 */
 		textEdits?: TextEdit[];
 
@@ -4740,8 +4757,8 @@ declare module 'vscode' {
 		provideInlayHints(document: TextDocument, range: Range, token: CancellationToken): ProviderResult<T[]>;
 
 		/**
-		 * Given an inlay hint fill in {@link InlayHint.tooltip tooltip}, {@link InlayHint.command command}, or complete
-		 * label {@link InlayHintLabelPart parts}.
+		 * Given an inlay hint fill in {@link InlayHint.tooltip tooltip}, {@link InlayHint.textEdits text edits},
+		 * or complete label {@link InlayHintLabelPart parts}.
 		 *
 		 * *Note* that the editor will resolve an inlay hint at most once.
 		 *
@@ -6521,8 +6538,8 @@ declare module 'vscode' {
 		extensionKind: ExtensionKind;
 
 		/**
-		 * The public API exported by this extension. It is an invalid action
-		 * to access this field before this extension has been activated.
+		 * The public API exported by this extension (return value of `activate`).
+		 * It is an invalid action to access this field before this extension has been activated.
 		 */
 		readonly exports: T;
 
@@ -6808,7 +6825,8 @@ declare module 'vscode' {
 	export enum ColorThemeKind {
 		Light = 1,
 		Dark = 2,
-		HighContrast = 3
+		HighContrast = 3,
+		HighContrastLight = 4
 	}
 
 	/**
@@ -6817,7 +6835,7 @@ declare module 'vscode' {
 	export interface ColorTheme {
 
 		/**
-		 * The kind of this color theme: light, dark or high contrast.
+		 * The kind of this color theme: light, dark, high contrast dark and high contrast light.
 		 */
 		readonly kind: ColorThemeKind;
 	}
@@ -7236,7 +7254,7 @@ declare module 'vscode' {
 		/**
 		 * Creates a new task.
 		 *
-		 * @param definition The task definition as defined in the taskDefinitions extension point.
+		 * @param taskDefinition The task definition as defined in the taskDefinitions extension point.
 		 * @param scope Specifies the task's scope. It is either a global or a workspace task or a task for a specific workspace folder. Global tasks are currently not supported.
 		 * @param name The task's name. Is presented in the user interface.
 		 * @param source The task's source (e.g. 'gulp', 'npm', ...). Is presented in the user interface.
@@ -7252,7 +7270,7 @@ declare module 'vscode' {
 		 *
 		 * @deprecated Use the new constructors that allow specifying a scope for the task.
 		 *
-		 * @param definition The task definition as defined in the taskDefinitions extension point.
+		 * @param taskDefinition The task definition as defined in the taskDefinitions extension point.
 		 * @param name The task's name. Is presented in the user interface.
 		 * @param source The task's source (e.g. 'gulp', 'npm', ...). Is presented in the user interface.
 		 * @param execution The process or shell execution.
@@ -7889,8 +7907,8 @@ declare module 'vscode' {
 		/**
 		 * Rename a file or folder.
 		 *
-		 * @param oldUri The existing file.
-		 * @param newUri The new location.
+		 * @param source The existing file.
+		 * @param target The new location.
 		 * @param options Defines if existing files should be overwritten.
 		 */
 		rename(source: Uri, target: Uri, options?: { overwrite?: boolean }): Thenable<void>;
@@ -7899,7 +7917,7 @@ declare module 'vscode' {
 		 * Copy files or folders.
 		 *
 		 * @param source The existing file.
-		 * @param destination The destination location.
+		 * @param target The destination location.
 		 * @param options Defines if existing files should be overwritten.
 		 */
 		copy(source: Uri, target: Uri, options?: { overwrite?: boolean }): Thenable<void>;
@@ -9385,11 +9403,16 @@ declare module 'vscode' {
 		export function createInputBox(): InputBox;
 
 		/**
-		 * Creates a new {@link OutputChannel output channel} with the given name.
+		 * Creates a new {@link OutputChannel output channel} with the given name and language id
+		 * If language id is not provided, then **Log** is used as default language id.
+		 *
+		 * You can access the visible or active output channel as a {@link TextDocument text document} from {@link window.visibleTextEditors visible editors} or {@link window.activeTextEditor active editor}
+		 * and use the langage id to contribute language features like syntax coloring, code lens etc.,
 		 *
 		 * @param name Human-readable string which will be used to represent the channel in the UI.
+		 * @param languageId The identifier of the language associated with the channel.
 		 */
-		export function createOutputChannel(name: string): OutputChannel;
+		export function createOutputChannel(name: string, languageId?: string): OutputChannel;
 
 		/**
 		 * Create and show a new webview panel.
@@ -9756,29 +9779,35 @@ declare module 'vscode' {
 
 	/**
 	 * A map containing a mapping of the mime type of the corresponding transferred data.
-	 * Drag and drop controllers that implement `handleDrag` can additional mime types to the data transfer
-	 * These additional mime types will only be included in the `handleDrop` when the the drag was initiated from
+	 *
+	 * Drag and drop controllers that implement {@link TreeDragAndDropController.handleDrag `handleDrag`} can add additional mime types to the
+	 * data transfer. These additional mime types will only be included in the `handleDrop` when the the drag was initiated from
 	 * an element in the same drag and drop controller.
 	 */
-	export class DataTransfer<T extends DataTransferItem = DataTransferItem> {
+	export class DataTransfer {
 		/**
 		 * Retrieves the data transfer item for a given mime type.
-		 * @param mimeType The mime type to get the data transfer item for.
+		 *
+		 * @param mimeType The mime type to get the data transfer item for, such as `text/plain` or `image/png`.
+		 *
+		 * Special mime types:
+		 * - `text/uri-list` — A string with `toString()`ed Uris separated by newlines. To specify a cursor position in the file,
+		 * set the Uri's fragment to `L3,5`, where 3 is the line number and 5 is the column number.
 		 */
-		get(mimeType: string): T | undefined;
+		get(mimeType: string): DataTransferItem | undefined;
 
 		/**
 		 * Sets a mime type to data transfer item mapping.
 		 * @param mimeType The mime type to set the data for.
 		 * @param value The data transfer item for the given mime type.
 		 */
-		set(mimeType: string, value: T): void;
+		set(mimeType: string, value: DataTransferItem): void;
 
 		/**
 		 * Allows iteration through the data transfer items.
 		 * @param callbackfn Callback for iteration through the data transfer items.
 		 */
-		forEach(callbackfn: (value: T, key: string) => void): void;
+		forEach(callbackfn: (value: DataTransferItem, key: string) => void): void;
 	}
 
 	/**
@@ -9787,52 +9816,58 @@ declare module 'vscode' {
 	export interface TreeDragAndDropController<T> {
 
 		/**
-		 * The mime types that the `handleDrop` method of this `DragAndDropController` supports.
+		 * The mime types that the {@link TreeDragAndDropController.handleDrop `handleDrop`} method of this `DragAndDropController` supports.
 		 * This could be well-defined, existing, mime types, and also mime types defined by the extension.
 		 *
-		 * Each tree will automatically support drops from it's own `DragAndDropController`. To support drops from other trees,
-		 * you will need to add the mime type of that tree. The mime type of a tree is of the format `application/vnd.code.tree.treeidlowercase`.
+		 * To support drops from trees, you will need to add the mime type of that tree.
+		 * This includes drops from within the same tree.
+		 * The mime type of a tree is recommended to be of the format `application/vnd.code.tree.<treeidlowercase>`.
 		 *
 		 * To learn the mime type of a dragged item:
 		 * 1. Set up your `DragAndDropController`
 		 * 2. Use the Developer: Set Log Level... command to set the level to "Debug"
 		 * 3. Open the developer tools and drag the item with unknown mime type over your tree. The mime types will be logged to the developer console
+		 *
+		 * Note that mime types that cannot be sent to the extension will be omitted.
 		 */
 		readonly dropMimeTypes: string[];
 
 		/**
-		 * The mime types that the `handleDrag` method of this `TreeDragAndDropController` may add to the tree data transfer.
+		 * The mime types that the {@link TreeDragAndDropController.handleDrag `handleDrag`} method of this `TreeDragAndDropController` may add to the tree data transfer.
 		 * This could be well-defined, existing, mime types, and also mime types defined by the extension.
+		 *
+		 * The recommended mime type of the tree (`application/vnd.code.tree.<treeidlowercase>`) will be automatically added.
 		 */
 		readonly dragMimeTypes: string[];
 
 		/**
 		 * When the user starts dragging items from this `DragAndDropController`, `handleDrag` will be called.
-		 * Extensions can use `handleDrag` to add their `DataTransferItem`s to the drag and drop.
+		 * Extensions can use `handleDrag` to add their {@link DataTransferItem `DataTransferItem`} items to the drag and drop.
 		 *
 		 * When the items are dropped on **another tree item** in **the same tree**, your `DataTransferItem` objects
-		 * will be preserved. See the documentation for `DataTransferItem` for how best to take advantage of this.
+		 * will be preserved. Use the recommended mime type for the tree (`application/vnd.code.tree.<treeidlowercase>`) to add
+		 * tree objects in a data transfer. See the documentation for `DataTransferItem` for how best to take advantage of this.
 		 *
 		 * To add a data transfer item that can be dragged into the editor, use the application specific mime type "text/uri-list".
 		 * The data for "text/uri-list" should be a string with `toString()`ed Uris separated by newlines. To specify a cursor position in the file,
 		 * set the Uri's fragment to `L3,5`, where 3 is the line number and 5 is the column number.
 		 *
 		 * @param source The source items for the drag and drop operation.
-		 * @param treeDataTransfer The data transfer associated with this drag.
+		 * @param dataTransfer The data transfer associated with this drag.
 		 * @param token A cancellation token indicating that drag has been cancelled.
 		 */
-		handleDrag?(source: T[], treeDataTransfer: DataTransfer, token: CancellationToken): Thenable<void> | void;
+		handleDrag?(source: T[], dataTransfer: DataTransfer, token: CancellationToken): Thenable<void> | void;
 
 		/**
-		 * Called when a drag and drop action results in a drop on the tree that this `DragAndDropController` belongs too.
+		 * Called when a drag and drop action results in a drop on the tree that this `DragAndDropController` belongs to.
 		 *
-		 * Extensions should fire `TreeDataProvider.onDidChangeTreeData` for any elements that need to be refreshed.
+		 * Extensions should fire {@link TreeDataProvider.onDidChangeTreeData onDidChangeTreeData} for any elements that need to be refreshed.
 		 *
-		 * @param source The data transfer items of the source of the drag.
-		 * @param target The target tree element that the drop is occurring on.
+		 * @param dataTransfer The data transfer items of the source of the drag.
+		 * @param target The target tree element that the drop is occurring on. When undefined, the target is the root.
 		 * @param token A cancellation token indicating that the drop has been cancelled.
 		 */
-		handleDrop?(target: T, source: DataTransfer, token: CancellationToken): Thenable<void> | void;
+		handleDrop?(target: T | undefined, dataTransfer: DataTransfer, token: CancellationToken): Thenable<void> | void;
 	}
 
 	/**
@@ -10518,17 +10553,20 @@ declare module 'vscode' {
 
 		/**
 		 * Show progress for the source control viewlet, as overlay for the icon and as progress bar
-		 * inside the viewlet (when visible). Neither supports cancellation nor discrete progress.
+		 * inside the viewlet (when visible). Neither supports cancellation nor discrete progress nor
+		 * a label to describe the operation.
 		 */
 		SourceControl = 1,
 
 		/**
 		 * Show progress in the status bar of the editor. Neither supports cancellation nor discrete progress.
+		 * Supports rendering of {@link ThemeIcon theme icons} via the `$(<name>)`-syntax in the progress label.
 		 */
 		Window = 10,
 
 		/**
-		 * Show progress as notification with an optional cancel button. Supports to show infinite and discrete progress.
+		 * Show progress as notification with an optional cancel button. Supports to show infinite and discrete
+		 * progress but does not support rendering of icons.
 		 */
 		Notification = 15
 	}
@@ -11374,6 +11412,9 @@ declare module 'vscode' {
 		 * otherwise will be watched non-recursively (i.e. only changes to the first level of the path
 		 * will be reported).
 		 *
+		 * If possible, keep the use of recursive watchers to a minimum because recursive file watching
+		 * is quite resource intense.
+		 *
 		 * Providing a `string` as `globPattern` acts as convenience method for watching file events in
 		 * all opened workspace folders. It cannot be used to add more folders for file watching, nor will
 		 * it report any file events from folders that are not part of the opened workspace folders.
@@ -11382,10 +11423,11 @@ declare module 'vscode' {
 		 *
 		 * To stop listening to events the watcher must be disposed.
 		 *
-		 * *Note* that file events from file watchers may be excluded based on user configuration.
+		 * *Note* that file events from recursive file watchers may be excluded based on user configuration.
 		 * The setting `files.watcherExclude` helps to reduce the overhead of file events from folders
 		 * that are known to produce many file changes at once (such as `node_modules` folders). As such,
-		 * it is highly recommended to watch with simple patterns that do not require recursive watchers.
+		 * it is highly recommended to watch with simple patterns that do not require recursive watchers
+		 * where the exclude settings are ignored and you have full control over the events.
 		 *
 		 * *Note* that symbolic links are not automatically followed for file watching unless the path to
 		 * watch itself is a symbolic link.
@@ -11893,10 +11935,10 @@ declare module 'vscode' {
 		 * 1. When {@linkcode DocumentSelector} is an array, compute the match for each contained `DocumentFilter` or language identifier and take the maximum value.
 		 * 2. A string will be desugared to become the `language`-part of a {@linkcode DocumentFilter}, so `"fooLang"` is like `{ language: "fooLang" }`.
 		 * 3. A {@linkcode DocumentFilter} will be matched against the document by comparing its parts with the document. The following rules apply:
-		 *  1. When the `DocumentFilter` is empty (`{}`) the result is `0`
-		 *  2. When `scheme`, `language`, or `pattern` are defined but one doesn't match, the result is `0`
-		 *  3. Matching against `*` gives a score of `5`, matching via equality or via a glob-pattern gives a score of `10`
-		 *  4. The result is the maximum value of each match
+		 *    1. When the `DocumentFilter` is empty (`{}`) the result is `0`
+		 *    2. When `scheme`, `language`, `pattern`, or `notebook` are defined but one doesn't match, the result is `0`
+		 *    3. Matching against `*` gives a score of `5`, matching via equality or via a glob-pattern gives a score of `10`
+		 *    4. The result is the maximum value of each match
 		 *
 		 * Samples:
 		 * ```js
@@ -11904,8 +11946,8 @@ declare module 'vscode' {
 		 * doc.uri; //'file:///my/file.js'
 		 * doc.languageId; // 'javascript'
 		 * match('javascript', doc); // 10;
-		 * match({language: 'javascript'}, doc); // 10;
-		 * match({language: 'javascript', scheme: 'file'}, doc); // 10;
+		 * match({ language: 'javascript' }, doc); // 10;
+		 * match({ language: 'javascript', scheme: 'file' }, doc); // 10;
 		 * match('*', doc); // 5
 		 * match('fooLang', doc); // 0
 		 * match(['fooLang', '*'], doc); // 5
@@ -11914,8 +11956,16 @@ declare module 'vscode' {
 		 * doc.uri; // 'git:/my/file.js'
 		 * doc.languageId; // 'javascript'
 		 * match('javascript', doc); // 10;
-		 * match({language: 'javascript', scheme: 'git'}, doc); // 10;
+		 * match({ language: 'javascript', scheme: 'git' }, doc); // 10;
 		 * match('*', doc); // 5
+		 *
+		 * // notebook cell document
+		 * doc.uri; // `vscode-notebook-cell:///my/notebook.ipynb#gl65s2pmha`;
+		 * doc.languageId; // 'python'
+		 * match({ notebookType: 'jupyter-notebook' }, doc) // 10
+		 * match({ notebookType: 'fooNotebook', language: 'python' }, doc) // 0
+		 * match({ language: 'python' }, doc) // 10
+		 * match({ notebookType: '*' }, doc) // 5
 		 * ```
 		 *
 		 * @param selector A document selector.
@@ -12983,7 +13033,7 @@ declare module 'vscode' {
 		 * _Note_ that controller selection is persisted (by the controllers {@link NotebookController.id id}) and restored as soon as a
 		 * controller is re-created or as a notebook is {@link workspace.onDidOpenNotebookDocument opened}.
 		 */
-		readonly onDidChangeSelectedNotebooks: Event<{ notebook: NotebookDocument; selected: boolean }>;
+		readonly onDidChangeSelectedNotebooks: Event<{ readonly notebook: NotebookDocument; readonly selected: boolean }>;
 
 		/**
 		 * A controller can set affinities for specific notebook documents. This allows a controller
@@ -14052,7 +14102,7 @@ declare module 'vscode' {
 		 * Registering a single provider with resolve methods for different trigger kinds, results in the same resolve methods called multiple times.
 		 * More than one provider can be registered for the same type.
 		 *
-		 * @param type The debug type for which the provider is registered.
+		 * @param debugType The debug type for which the provider is registered.
 		 * @param provider The {@link DebugConfigurationProvider debug configuration provider} to register.
 		 * @param triggerKind The {@link DebugConfigurationProviderTrigger trigger} for which the 'provideDebugConfiguration' method of the provider is registered. If `triggerKind` is missing, the value `DebugConfigurationProviderTriggerKind.Initial` is assumed.
 		 * @return A {@link Disposable} that unregisters this provider when being disposed.
@@ -15011,7 +15061,7 @@ declare module 'vscode' {
 		readonly profile: TestRunProfile | undefined;
 
 		/**
-		 * @param tests Array of specific tests to run, or undefined to run all tests
+		 * @param include Array of specific tests to run, or undefined to run all tests
 		 * @param exclude An array of tests to exclude from the run.
 		 * @param profile The run profile used for this request.
 		 */
@@ -15062,7 +15112,7 @@ declare module 'vscode' {
 		 * Indicates a test has failed. You should pass one or more
 		 * {@link TestMessage TestMessages} to describe the failure.
 		 * @param test Test item to update.
-		 * @param messages Messages associated with the test failure.
+		 * @param message Messages associated with the test failure.
 		 * @param duration How long the test took to execute, in milliseconds.
 		 */
 		failed(test: TestItem, message: TestMessage | readonly TestMessage[], duration?: number): void;
@@ -15073,7 +15123,7 @@ declare module 'vscode' {
 		 * from the "failed" state in that it indicates a test that couldn't be
 		 * executed at all, from a compilation error for example.
 		 * @param test Test item to update.
-		 * @param messages Messages associated with the test failure.
+		 * @param message Messages associated with the test failure.
 		 * @param duration How long the test took to execute, in milliseconds.
 		 */
 		errored(test: TestItem, message: TestMessage | readonly TestMessage[], duration?: number): void;
@@ -15131,7 +15181,7 @@ declare module 'vscode' {
 		/**
 		 * Adds the test item to the children. If an item with the same ID already
 		 * exists, it'll be replaced.
-		 * @param items Item to add.
+		 * @param item Item to add.
 		 */
 		add(item: TestItem): void;
 
