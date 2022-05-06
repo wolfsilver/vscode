@@ -7,10 +7,11 @@ import { asArray, coalesce, isNonEmptyArray } from 'vs/base/common/arrays';
 import { VSBuffer } from 'vs/base/common/buffer';
 import * as htmlContent from 'vs/base/common/htmlContent';
 import { DisposableStore } from 'vs/base/common/lifecycle';
+import { ResourceSet } from 'vs/base/common/map';
 import { marked } from 'vs/base/common/marked/marked';
 import { parse } from 'vs/base/common/marshalling';
 import { cloneAndChange } from 'vs/base/common/objects';
-import { isDefined, isEmptyObject, isNumber, isString, withNullAsUndefined } from 'vs/base/common/types';
+import { isDefined, isEmptyObject, isNumber, isString, isUndefinedOrNull, withNullAsUndefined } from 'vs/base/common/types';
 import { URI, UriComponents } from 'vs/base/common/uri';
 import { IURITransformer } from 'vs/base/common/uriIpc';
 import { RenderLineNumbersType } from 'vs/editor/common/config/editorOptions';
@@ -32,7 +33,7 @@ import * as notebooks from 'vs/workbench/contrib/notebook/common/notebookCommon'
 import { ICellRange } from 'vs/workbench/contrib/notebook/common/notebookRange';
 import * as search from 'vs/workbench/contrib/search/common/search';
 import { TestId } from 'vs/workbench/contrib/testing/common/testId';
-import { CoverageDetails, denamespaceTestTag, DetailType, ICoveredCount, IFileCoverage, ISerializedTestResults, ITestErrorMessage, ITestItem, ITestItemContext, ITestTag, namespaceTestTag, TestMessageType, TestResultItem } from 'vs/workbench/contrib/testing/common/testTypes';
+import { CoverageDetails, denamespaceTestTag, DetailType, ICoveredCount, IFileCoverage, ISerializedTestResults, ITestErrorMessage, ITestItem, ITestTag, namespaceTestTag, TestMessageType, TestResultItem } from 'vs/workbench/contrib/testing/common/testTypes';
 import { EditorGroupColumn } from 'vs/workbench/services/editor/common/editorGroupColumn';
 import { ACTIVE_GROUP, SIDE_GROUP } from 'vs/workbench/services/editor/common/editorService';
 import type * as vscode from 'vscode';
@@ -558,6 +559,15 @@ export namespace TextEdit {
 	}
 }
 
+export namespace SnippetTextEdit {
+	export function from(edit: vscode.SnippetTextEdit): languages.SnippetTextEdit {
+		return {
+			range: Range.from(edit.range),
+			snippet: edit.snippet.value
+		};
+	}
+}
+
 export namespace WorkspaceEdit {
 
 	export interface IVersionInformationProvider {
@@ -571,7 +581,17 @@ export namespace WorkspaceEdit {
 		};
 
 		if (value instanceof types.WorkspaceEdit) {
-			for (let entry of value._allEntries()) {
+
+			// collect all files that are to be created so that their version
+			// information (in case they exist as text model already) can be ignored
+			const toCreate = new ResourceSet();
+			for (const entry of value._allEntries()) {
+				if (entry._type === types.FileEditType.File && URI.isUri(entry.to) && entry.from === undefined) {
+					toCreate.add(entry.to);
+				}
+			}
+
+			for (const entry of value._allEntries()) {
 
 				if (entry._type === types.FileEditType.File) {
 					// file operation
@@ -589,7 +609,7 @@ export namespace WorkspaceEdit {
 						_type: extHostProtocol.WorkspaceEditType.Text,
 						resource: entry.uri,
 						edit: TextEdit.from(entry.edit),
-						modelVersionId: versionInfo?.getTextDocumentVersion(entry.uri),
+						modelVersionId: !toCreate.has(entry.uri) ? versionInfo?.getTextDocumentVersion(entry.uri) : undefined,
 						metadata: entry.metadata
 					});
 				} else if (entry._type === types.FileEditType.Cell) {
@@ -1471,7 +1491,8 @@ export namespace LanguageSelector {
 				language: filter.language,
 				scheme: filter.scheme,
 				pattern: GlobPattern.from(filter.pattern),
-				exclusive: filter.exclusive
+				exclusive: filter.exclusive,
+				notebookType: filter.notebookType
 			};
 		}
 	}
@@ -1656,8 +1677,7 @@ export namespace NotebookExclusiveDocumentPattern {
 		if (!ep) {
 			return false;
 		}
-
-		return !!ep.include && !!ep.exclude;
+		return !isUndefinedOrNull(ep.include) && !isUndefinedOrNull(ep.exclude);
 	}
 }
 
@@ -1776,25 +1796,6 @@ export namespace TestItem {
 			description: item.description || undefined,
 			sortText: item.sortText || undefined,
 		};
-	}
-
-	export function toItemFromContext(context: ITestItemContext): vscode.TestItem {
-		let node: vscode.TestItem | undefined;
-		for (const test of context.tests) {
-			const next = toPlain(test.item);
-			(node as any).children = {
-				add: () => { },
-				delete: () => { },
-				forEach(fn) { fn(next, this); },
-				get: id => id === test.item.extId ? test.item : undefined,
-				replace: () => { },
-				size: 1,
-			} as vscode.TestItemCollection;
-			(next as any).parent = node;
-			node = next;
-		}
-
-		return node!;
 	}
 }
 

@@ -45,6 +45,7 @@ export class CommentNode<T extends IRange | ICellRange> extends Disposable {
 	private _domNode: HTMLElement;
 	private _body: HTMLElement;
 	private _md: HTMLElement | undefined;
+	private _plainText: HTMLElement | undefined;
 	private _clearTimeout: any;
 
 	private _editAction: Action | null = null;
@@ -125,8 +126,10 @@ export class CommentNode<T extends IRange | ICellRange> extends Disposable {
 	private updateCommentBody(body: string | IMarkdownString) {
 		this._body.innerText = '';
 		this._md = undefined;
+		this._plainText = undefined;
 		if (typeof body === 'string') {
-			this._body.innerText = body;
+			this._plainText = dom.append(this._body, dom.$('.comment-body-plainstring'));
+			this._plainText.innerText = body;
 		} else {
 			this._md = this.markdownRenderer.render(body).element;
 			this._body.appendChild(this._md);
@@ -162,10 +165,11 @@ export class CommentNode<T extends IRange | ICellRange> extends Disposable {
 
 	private createHeader(commentDetailsContainer: HTMLElement): void {
 		const header = dom.append(commentDetailsContainer, dom.$(`div.comment-title.${MOUSE_CURSOR_TEXT_CSS_CLASS_NAME}`));
-		const author = dom.append(header, dom.$('strong.author'));
+		const infoContainer = dom.append(header, dom.$('comment-header-info'));
+		const author = dom.append(infoContainer, dom.$('strong.author'));
 		author.innerText = this.comment.userName;
-		this.createTimestamp(header);
-		this._isPendingLabel = dom.append(header, dom.$('span.isPending'));
+		this.createTimestamp(infoContainer);
+		this._isPendingLabel = dom.append(infoContainer, dom.$('span.isPending'));
 
 		if (this.comment.label) {
 			this._isPendingLabel.innerText = this.comment.label;

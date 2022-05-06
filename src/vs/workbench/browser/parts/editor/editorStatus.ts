@@ -1202,7 +1202,7 @@ export class ChangeLanguageAction extends Action {
 						if (resource) {
 							// Detect languages since we are in an untitled file
 							let languageId: string | undefined = withNullAsUndefined(this.languageService.guessLanguageIdByFilepathOrFirstLine(resource, textModel.getLineContent(1)));
-							if (!languageId) {
+							if (!languageId || languageId === 'unknown') {
 								detectedLanguage = await this.languageDetectionService.detectLanguage(resource);
 								languageId = detectedLanguage;
 							}
@@ -1506,7 +1506,7 @@ export class ChangeEncodingAction extends Action {
 		}
 
 		const activeEncodingSupport = toEditorWithEncodingSupport(this.editorService.activeEditorPane.input);
-		if (typeof encoding.id !== 'undefined' && activeEncodingSupport && activeEncodingSupport.getEncoding() !== encoding.id) {
+		if (typeof encoding.id !== 'undefined' && activeEncodingSupport) {
 			await activeEncodingSupport.setEncoding(encoding.id, isReopenWithEncoding ? EncodingMode.Decode : EncodingMode.Encode); // Set new encoding
 		}
 
