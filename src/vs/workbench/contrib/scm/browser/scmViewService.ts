@@ -48,6 +48,12 @@ export interface ISCMViewServiceState {
 	readonly visible: number[];
 }
 
+interface SortIndex {
+	index: number;
+	uri: string;
+	children: SortIndex[];
+}
+
 export class SCMViewService implements ISCMViewService {
 
 	declare readonly _serviceBrand: undefined;
@@ -66,17 +72,20 @@ export class SCMViewService implements ISCMViewService {
 	}
 
 	get visibleRepositories(): ISCMRepository[] {
-		// In order to match the legacy behaviour, when the repositories are sorted by discovery time,
-		// the visible repositories are sorted by the selection index instead of the discovery time.
-		if (this._repositoriesSortKey === ISCMRepositorySortKey.DiscoveryTime) {
-			return this._repositories.filter(r => r.selectionIndex !== -1)
-				.sort((r1, r2) => r1.selectionIndex - r2.selectionIndex)
-				.map(r => r.repository);
-		}
-
-		return this._repositories
+		return this.sortRepositories(this._repositories)
 			.filter(r => r.selectionIndex !== -1)
 			.map(r => r.repository);
+		// In order to match the legacy behaviour, when the repositories are sorted by discovery time,
+		// the visible repositories are sorted by the selection index instead of the discovery time.
+		// if (this._repositoriesSortKey === ISCMRepositorySortKey.DiscoveryTime) {
+		// 	return this._repositories.filter(r => r.selectionIndex !== -1)
+		// 		.sort((r1, r2) => r1.selectionIndex - r2.selectionIndex)
+		// 		.map(r => r.repository);
+		// }
+
+		// return this._repositories
+		// 	.filter(r => r.selectionIndex !== -1)
+		// 	.map(r => r.repository);
 	}
 
 	set visibleRepositories(visibleRepositories: ISCMRepository[]) {
@@ -184,6 +193,64 @@ export class SCMViewService implements ISCMViewService {
 		}
 
 		storageService.onWillSaveState(this.onWillSaveState, this, this.disposables);
+	}
+
+	private sortRepositories(visibleRepositories: ISCMRepositoryView[]): ISCMRepositoryView[] {
+		function _sort(repos, prefix) {
+			repos.sort((a, b) => b.uri.length - a.uri.length);
+			for (let i = repos.length; i--;) {
+				const repo = repos[i];
+				const rootUri = repo.uri + '/';
+				for (let j = i; j--;) {
+					if (repos[j].uri.includes(rootUri)) {
+						repos[j].prefix = prefix;
+						repo.children = repos.splice(j, 1).concat(repo.children);
+						--i;
+					}
+				}
+				repo.children = _sort(repo.children, '　' + prefix);
+			}
+			repos.sort((a, b) => a.index - b.index);
+			return repos.reduce((acc, repo) => { acc.push(repo, ...repo.children); return acc; }, []);
+		}
+
+
+		let sortIndexs: SortIndex[] = visibleRepositories.map((repo, index) => ({
+			index,
+			uri: repo.repository.provider.rootUri!.path,
+			children: []
+		}));
+
+		let sortedIndex: SortIndex[] = _sort(sortIndexs, '${config.prefix || \'┡\'} ');
+
+		return sortedIndex.map(({ index: number, prefix: string }) => {
+			visibleRepositories[index].repository.provider.prefix = prefix;
+			return visibleRepositories[index];
+		});
+		// let sortIndexs: SortIndex[] = visibleRepositories.map((repo, index) => ({
+		// 	index,
+		// 	uri: repo.repository.provider.rootUri!.path,
+		// 	children: []
+		// }));
+		// sortIndexs.sort((a, b) => b.uri.length - a.uri.length);
+		// for (let i = sortIndexs.length; i--;) {
+		// 	const repo = sortIndexs[i];
+		// 	const rootUri = `${repo.uri}/`;
+
+		// 	for (let j = i; j--;) {
+		// 		if (sortIndexs[j].uri.includes(rootUri)) {
+		// 			repo.children = sortIndexs.splice(j, 1).concat(repo.children);
+		// 			--i;
+		// 		}
+		// 	}
+		// }
+		// sortIndexs.sort((a, b) => a.index - b.index);
+		// sortIndexs = sortIndexs.reduce((acc: SortIndex[], repo) => {
+		// 	acc.push(repo, ...repo.children);
+		// 	return acc;
+		// }, []);
+
+		// return sortIndexs.map(({ index }) => visibleRepositories[index]);
 	}
 
 	private onDidAddRepository(repository: ISCMRepository): void {
