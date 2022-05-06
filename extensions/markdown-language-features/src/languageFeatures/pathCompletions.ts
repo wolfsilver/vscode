@@ -9,7 +9,7 @@ import { MarkdownEngine } from '../markdownEngine';
 import { TableOfContents } from '../tableOfContents';
 import { resolveUriToMarkdownFile } from '../util/openDocumentLink';
 import { SkinnyTextDocument } from '../workspaceContents';
-import { DefinitionLinkTarget, MdLinkProvider } from './documentLinkProvider';
+import { MdLinkProvider } from './documentLinkProvider';
 
 enum CompletionContextKind {
 	/** `[...](|)` */
@@ -103,7 +103,11 @@ export class MdPathCompletionProvider implements vscode.CompletionItemProvider {
 
 		switch (context.kind) {
 			case CompletionContextKind.ReferenceLink: {
-				return Array.from(this.provideReferenceSuggestions(document, position, context));
+				const items: vscode.CompletionItem[] = [];
+				for await (const item of this.provideReferenceSuggestions(document, position, context)) {
+					items.push(item);
+				}
+				return items;
 			}
 
 			case CompletionContextKind.LinkDefinition:
@@ -232,15 +236,15 @@ export class MdPathCompletionProvider implements vscode.CompletionItemProvider {
 		};
 	}
 
-	private *provideReferenceSuggestions(document: SkinnyTextDocument, position: vscode.Position, context: CompletionContext): Iterable<vscode.CompletionItem> {
+	private async *provideReferenceSuggestions(document: SkinnyTextDocument, position: vscode.Position, context: CompletionContext): AsyncIterable<vscode.CompletionItem> {
 		const insertionRange = new vscode.Range(context.linkTextStartPosition, position);
 		const replacementRange = new vscode.Range(insertionRange.start, position.translate({ characterDelta: context.linkSuffix.length }));
 
-		const definitions = this.linkProvider.getDefinitionLinks(document);
+		const definitions = await this.linkProvider.getLinkDefinitions(document);
 		for (const def of definitions) {
 			yield {
 				kind: vscode.CompletionItemKind.Reference,
-				label: (def.target as DefinitionLinkTarget).ref,
+				label: def.ref.text,
 				range: {
 					inserting: insertionRange,
 					replacing: replacementRange,

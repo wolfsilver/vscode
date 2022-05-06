@@ -53,7 +53,7 @@ export class CodeCell extends Disposable {
 	) {
 		super();
 
-		const cellEditorOptions = this._register(new CellEditorOptions(this.notebookEditor, this.notebookEditor.notebookOptions, this.configurationService, this.viewCell.language));
+		const cellEditorOptions = this._register(new CellEditorOptions(this.notebookEditor.getBaseCellEditorOptions(viewCell.language), this.notebookEditor.notebookOptions, this.configurationService));
 		this._outputContainerRenderer = this.instantiationService.createInstance(CellOutputContainer, notebookEditor, viewCell, templateData, { limit: 500 });
 		this.cellParts = [...templateData.cellParts, cellEditorOptions, this._outputContainerRenderer];
 
@@ -316,8 +316,17 @@ export class CodeCell extends Disposable {
 		}));
 	}
 
+	private shouldUpdateDOMFocus() {
+		// The DOM focus needs to be adjusted:
+		// when a cell editor should be focused
+		// the document active element is inside the notebook editor or the document body (cell editor being disposed previously)
+		return this.notebookEditor.getActiveCell() === this.viewCell
+			&& this.viewCell.focusMode === CellFocusMode.Editor
+			&& (this.notebookEditor.hasEditorFocus() || document.activeElement === document.body);
+	}
+
 	private updateEditorForFocusModeChange() {
-		if (this.viewCell.focusMode === CellFocusMode.Editor && this.notebookEditor.getActiveCell() === this.viewCell) {
+		if (this.shouldUpdateDOMFocus()) {
 			this.templateData.editor?.focus();
 		}
 
@@ -479,7 +488,7 @@ export class CodeCell extends Disposable {
 		this._isDisposed = true;
 
 		// move focus back to the cell list otherwise the focus goes to body
-		if (this.notebookEditor.getActiveCell() === this.viewCell && this.viewCell.focusMode === CellFocusMode.Editor) {
+		if (this.shouldUpdateDOMFocus()) {
 			this.notebookEditor.focusContainer();
 		}
 
