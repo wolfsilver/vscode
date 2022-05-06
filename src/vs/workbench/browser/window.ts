@@ -3,8 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { setFullscreen } from 'vs/base/browser/browser';
-import { addDisposableListener, addDisposableThrottledListener, detectFullscreen, EventHelper, EventType, windowOpenNoOpenerWithSuccess, windowOpenNoOpener } from 'vs/base/browser/dom';
+import { isSafari, setFullscreen } from 'vs/base/browser/browser';
+import { addDisposableListener, addDisposableThrottledListener, detectFullscreen, EventHelper, EventType, windowOpenNoOpener, windowOpenPopup, windowOpenWithSuccess } from 'vs/base/browser/dom';
 import { DomEmitter } from 'vs/base/browser/event';
 import { timeout } from 'vs/base/common/async';
 import { Event } from 'vs/base/common/event';
@@ -17,10 +17,9 @@ import { localize } from 'vs/nls';
 import { IDialogService } from 'vs/platform/dialogs/common/dialogs';
 import { registerWindowDriver } from 'vs/platform/driver/browser/driver';
 import { ILabelService } from 'vs/platform/label/common/label';
-import { ILogService } from 'vs/platform/log/common/log';
 import { IOpenerService, matchesScheme } from 'vs/platform/opener/common/opener';
-import { IWorkbenchEnvironmentService } from 'vs/workbench/services/environment/common/environmentService';
-import { IHostService } from 'vs/workbench/services/host/browser/host';
+import { IProductService } from 'vs/platform/product/common/productService';
+import { IBrowserWorkbenchEnvironmentService } from 'vs/workbench/services/environment/browser/environmentService';
 import { IWorkbenchLayoutService } from 'vs/workbench/services/layout/browser/layoutService';
 import { BrowserLifecycleService } from 'vs/workbench/services/lifecycle/browser/lifecycleService';
 import { ILifecycleService } from 'vs/workbench/services/lifecycle/common/lifecycle';
@@ -31,10 +30,9 @@ export class BrowserWindow extends Disposable {
 		@IOpenerService private readonly openerService: IOpenerService,
 		@ILifecycleService private readonly lifecycleService: BrowserLifecycleService,
 		@IDialogService private readonly dialogService: IDialogService,
-		@IHostService private readonly hostService: IHostService,
 		@ILabelService private readonly labelService: ILabelService,
-		@IWorkbenchEnvironmentService private readonly environmentService: IWorkbenchEnvironmentService,
-		@ILogService private readonly logService: ILogService,
+		@IProductService private readonly productService: IProductService,
+		@IBrowserWorkbenchEnvironmentService private readonly environmentService: IBrowserWorkbenchEnvironmentService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService
 	) {
 		super();
@@ -51,9 +49,10 @@ export class BrowserWindow extends Disposable {
 		// Layout
 		const viewport = isIOS && window.visualViewport ? window.visualViewport /** Visual viewport */ : window /** Layout viewport */;
 		this._register(addDisposableListener(viewport, EventType.RESIZE, () => {
-			this.onWindowResize();
+			this.layoutService.layout();
+
+			// Sometimes the keyboard appearing scrolls the whole workbench out of view, as a workaround scroll back into view #121206
 			if (isIOS) {
-				// Sometimes the keyboard appearing scrolls the whole workbench out of view, as a workaround scroll back into view #121206
 				window.scrollTo(0, 0);
 			}
 		}));
@@ -68,19 +67,14 @@ export class BrowserWindow extends Disposable {
 		this._register(addDisposableListener(this.layoutService.container, EventType.DROP, e => EventHelper.stop(e, true)));
 
 		// Fullscreen (Browser)
-		[EventType.FULLSCREEN_CHANGE, EventType.WK_FULLSCREEN_CHANGE].forEach(event => {
+		for (const event of [EventType.FULLSCREEN_CHANGE, EventType.WK_FULLSCREEN_CHANGE]) {
 			this._register(addDisposableListener(document, event, () => setFullscreen(!!detectFullscreen())));
-		});
+		}
 
 		// Fullscreen (Native)
 		this._register(addDisposableThrottledListener(viewport, EventType.RESIZE, () => {
 			setFullscreen(!!detectFullscreen());
 		}, undefined, isMacintosh ? 2000 /* adjust for macOS animation */ : 800 /* can be throttled */));
-	}
-
-	private onWindowResize(): void {
-		this.logService.trace(`web.main#${isIOS && window.visualViewport ? 'visualViewport' : 'window'}Resize`);
-		this.layoutService.layout();
 	}
 
 	private onWillShutdown(): void {
@@ -113,23 +107,27 @@ export class BrowserWindow extends Disposable {
 			);
 
 			if (res.choice === 0) {
-				this.hostService.reload();
+				window.location.reload(); // do not use any services at this point since they are likely not functional at this point
 			}
 		});
 	}
 
 	private create(): void {
 
-		// Driver
-		if (this.environmentService.options?.developmentOptions?.enableSmokeTestDriver) {
-			(async () => this._register(await registerWindowDriver()))();
-		}
-
 		// Handle open calls
 		this.setupOpenHandlers();
 
 		// Label formatting
 		this.registerLabelFormatters();
+
+		// Smoke Test Driver
+		this.setupDriver();
+	}
+
+	private setupDriver(): void {
+		if (this.environmentService.enableSmokeTestDriver) {
+			registerWindowDriver();
+		}
 	}
 
 	private setupOpenHandlers(): void {
@@ -143,33 +141,85 @@ export class BrowserWindow extends Disposable {
 		// will trigger the `beforeunload`.
 		this.openerService.setDefaultExternalOpener({
 			openExternal: async (href: string) => {
+				let isAllowedOpener = false;
+				if (this.environmentService.options?.openerAllowedExternalUrlPrefixes) {
+					for (const trustedPopupPrefix of this.environmentService.options.openerAllowedExternalUrlPrefixes) {
+						if (href.startsWith(trustedPopupPrefix)) {
+							isAllowedOpener = true;
+							break;
+						}
+					}
+				}
+
+				// HTTP(s): open in new window and deal with potential popup blockers
 				if (matchesScheme(href, Schemas.http) || matchesScheme(href, Schemas.https)) {
-					const opened = windowOpenNoOpenerWithSuccess(href);
-					if (!opened) {
+					if (isSafari) {
+						const opened = windowOpenWithSuccess(href, !isAllowedOpener);
+						if (!opened) {
+							const showResult = await this.dialogService.show(
+								Severity.Warning,
+								localize('unableToOpenExternal', "The browser interrupted the opening of a new tab or window. Press 'Open' to open it anyway."),
+								[
+									localize('open', "Open"),
+									localize('learnMore', "Learn More"),
+									localize('cancel', "Cancel")
+								],
+								{
+									cancelId: 2,
+									detail: href
+								}
+							);
+
+							if (showResult.choice === 0) {
+								isAllowedOpener
+									? windowOpenPopup(href)
+									: windowOpenNoOpener(href);
+							}
+
+							if (showResult.choice === 1) {
+								await this.openerService.open(URI.parse('https://aka.ms/allow-vscode-popup'));
+							}
+						}
+					} else {
+						isAllowedOpener
+							? windowOpenPopup(href)
+							: windowOpenNoOpener(href);
+					}
+				}
+
+				// Anything else: set location to trigger protocol handler in the browser
+				// but make sure to signal this as an expected unload and disable unload
+				// handling explicitly to prevent the workbench from going down.
+				else {
+					const invokeProtocolHandler = () => {
+						this.lifecycleService.withExpectedShutdown({ disableShutdownHandling: true }, () => window.location.href = href);
+					};
+
+					invokeProtocolHandler();
+
+					// We cannot know whether the protocol handler succeeded.
+					// Display guidance in case it did not, e.g. the app is not installed locally.
+					if (matchesScheme(href, this.productService.urlProtocol)) {
 						const showResult = await this.dialogService.show(
-							Severity.Warning,
-							localize('unableToOpenExternal', "The browser interrupted the opening of a new tab or window. Press 'Open' to open it anyway."),
+							Severity.Info,
+							localize('openExternalDialogTitle', "All done. You can close this tab now."),
 							[
-								localize('open', "Open"),
-								localize('learnMore', "Learn More"),
-								localize('cancel', "Cancel")
+								localize('openExternalDialogButtonRetry', "Try again"),
+								localize('openExternalDialogButtonInstall', "Install {0}", this.productService.nameLong),
+								localize('openExternalDialogButtonContinue', "Continue here")
 							],
 							{
 								cancelId: 2,
-								detail: href
-							}
+								detail: localize('openExternalDialogDetail', "We tried opening {0} on your computer.", this.productService.nameLong)
+							},
 						);
 
 						if (showResult.choice === 0) {
-							windowOpenNoOpener(href);
-						}
-
-						if (showResult.choice === 1) {
-							await this.openerService.open(URI.parse('https://aka.ms/allow-vscode-popup'));
+							invokeProtocolHandler();
+						} else if (showResult.choice === 1) {
+							await this.openerService.open(URI.parse(`http://aka.ms/vscode-install`));
 						}
 					}
-				} else {
-					this.lifecycleService.withExpectedUnload(() => window.location.href = href);
 				}
 
 				return true;
@@ -179,7 +229,7 @@ export class BrowserWindow extends Disposable {
 
 	private registerLabelFormatters() {
 		this._register(this.labelService.registerFormatter({
-			scheme: Schemas.userData,
+			scheme: Schemas.vscodeUserData,
 			priority: true,
 			formatting: {
 				label: '(Settings) ${path}',

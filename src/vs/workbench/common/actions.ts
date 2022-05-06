@@ -7,12 +7,13 @@ import { localize } from 'vs/nls';
 import { Registry } from 'vs/platform/registry/common/platform';
 import { KeybindingsRegistry, KeybindingWeight } from 'vs/platform/keybinding/common/keybindingsRegistry';
 import { ICommandHandler, CommandsRegistry } from 'vs/platform/commands/common/commands';
-import { SyncActionDescriptor, MenuRegistry, MenuId, ICommandAction } from 'vs/platform/actions/common/actions';
+import { SyncActionDescriptor, MenuRegistry, MenuId } from 'vs/platform/actions/common/actions';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { IDisposable, DisposableStore } from 'vs/base/common/lifecycle';
 import { ILifecycleService, LifecyclePhase } from 'vs/workbench/services/lifecycle/common/lifecycle';
 import { INotificationService } from 'vs/platform/notification/common/notification';
 import { ContextKeyExpr, ContextKeyExpression } from 'vs/platform/contextkey/common/contextkey';
+import { ICommandAction } from 'vs/platform/action/common/action';
 
 export const Extensions = {
 	WorkbenchActions: 'workbench.contributions.actions'
@@ -128,6 +129,7 @@ Registry.add(Extensions.WorkbenchActions, new class implements IWorkbenchActionR
 export const CATEGORIES = {
 	View: { value: localize('view', "View"), original: 'View' },
 	Help: { value: localize('help', "Help"), original: 'Help' },
+	Test: { value: localize('test', "Test"), original: 'Test' },
 	Preferences: { value: localize('preferences', "Preferences"), original: 'Preferences' },
 	Developer: { value: localize({ key: 'developer', comment: ['A developer on Code itself or someone diagnosing issues in Code'] }, "Developer"), original: 'Developer' }
 };

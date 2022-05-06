@@ -3,19 +3,20 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as path from 'vs/base/common/path';
-import * as pfs from 'vs/base/node/pfs';
 import * as cp from 'child_process';
-import * as nls from 'vs/nls';
-import * as process from 'vs/base/common/process';
-import * as Types from 'vs/base/common/types';
+import { Stats } from 'fs';
 import { IStringDictionary } from 'vs/base/common/collections';
-import * as Objects from 'vs/base/common/objects';
 import * as extpath from 'vs/base/common/extpath';
-import * as Platform from 'vs/base/common/platform';
-import { LineDecoder } from 'vs/base/node/decoder';
-import { CommandOptions, ForkOptions, SuccessData, Source, TerminateResponse, TerminateResponseCode, Executable } from 'vs/base/common/processes';
 import { FileAccess } from 'vs/base/common/network';
+import * as Objects from 'vs/base/common/objects';
+import * as path from 'vs/base/common/path';
+import * as Platform from 'vs/base/common/platform';
+import * as process from 'vs/base/common/process';
+import { CommandOptions, Executable, ForkOptions, Source, SuccessData, TerminateResponse, TerminateResponseCode } from 'vs/base/common/processes';
+import * as Types from 'vs/base/common/types';
+import { LineDecoder } from 'vs/base/node/decoder';
+import * as pfs from 'vs/base/node/pfs';
+import * as nls from 'vs/nls';
 export { CommandOptions, ForkOptions, SuccessData, Source, TerminateResponse, TerminateResponseCode };
 
 export type ValueCallback<T> = (value: T | Promise<T>) => void;
@@ -49,7 +50,7 @@ function terminateProcess(process: cp.ChildProcess, cwd?: string): Promise<Termi
 			if (cwd) {
 				options.cwd = cwd;
 			}
-			const killProcess = cp.execFile('taskkill', ['/T', '/F', '/PID', process.pid.toString()], options);
+			const killProcess = cp.execFile('taskkill', ['/T', '/F', '/PID', process.pid!.toString()], options);
 			return new Promise(resolve => {
 				killProcess.once('error', (err) => {
 					resolve({ success: false, error: err });
@@ -69,7 +70,7 @@ function terminateProcess(process: cp.ChildProcess, cwd?: string): Promise<Termi
 		try {
 			const cmd = FileAccess.asFileUri('vs/base/node/terminateProcess.sh', require).fsPath;
 			return new Promise(resolve => {
-				cp.execFile(cmd, [process.pid.toString()], { encoding: 'utf8', shell: true } as cp.ExecFileOptions, (err, stdout, stderr) => {
+				cp.execFile(cmd, [process.pid!.toString()], { encoding: 'utf8', shell: true } as cp.ExecFileOptions, (err, stdout, stderr) => {
 					if (err) {
 						resolve({ success: false, error: err });
 					} else {
@@ -292,7 +293,7 @@ export abstract class AbstractProcess<TProgressData> {
 
 	public get pid(): Promise<number> {
 		if (this.childProcessPromise) {
-			return this.childProcessPromise.then(childProcess => childProcess.pid, err => -1);
+			return this.childProcessPromise.then(childProcess => childProcess.pid!, err => -1);
 		} else {
 			return new Promise<number>((resolve) => {
 				this.pidResolve = resolve;
@@ -457,7 +458,16 @@ export namespace win32 {
 
 		async function fileExists(path: string): Promise<boolean> {
 			if (await pfs.Promises.exists(path)) {
-				return !((await pfs.Promises.stat(path)).isDirectory());
+				let statValue: Stats | undefined;
+				try {
+					statValue = await pfs.Promises.stat(path);
+				} catch (e) {
+					if (e.message.startsWith('EACCES')) {
+						// it might be symlink
+						statValue = await pfs.Promises.lstat(path);
+					}
+				}
+				return statValue ? !statValue.isDirectory() : false;
 			}
 			return false;
 		}

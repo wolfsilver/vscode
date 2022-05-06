@@ -6,9 +6,9 @@
 import { localize } from 'vs/nls';
 import { IMenuService, MenuId, IMenu, SubmenuItemAction, registerAction2, Action2, MenuItemAction, MenuRegistry } from 'vs/platform/actions/common/actions';
 import { registerThemingParticipant, IThemeService } from 'vs/platform/theme/common/themeService';
-import { MenuBarVisibility, getTitleBarStyle, IWindowOpenable, getMenuBarVisibility } from 'vs/platform/windows/common/windows';
+import { MenuBarVisibility, getTitleBarStyle, IWindowOpenable, getMenuBarVisibility } from 'vs/platform/window/common/window';
 import { ContextKeyExpr, IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
-import { IAction, Action, SubmenuAction, Separator } from 'vs/base/common/actions';
+import { IAction, Action, SubmenuAction, Separator, IActionRunner, ActionRunner, WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification } from 'vs/base/common/actions';
 import { addDisposableListener, Dimension, EventType } from 'vs/base/browser/dom';
 import { IKeybindingService } from 'vs/platform/keybinding/common/keybinding';
 import { isMacintosh, isWeb, isIOS, isNative } from 'vs/base/common/platform';
@@ -38,8 +38,10 @@ import { KeyCode } from 'vs/base/common/keyCodes';
 import { KeybindingWeight } from 'vs/platform/keybinding/common/keybindingsRegistry';
 import { IsMacNativeContext, IsWebContext } from 'vs/platform/contextkey/common/contextkeys';
 import { ICommandService } from 'vs/platform/commands/common/commands';
+import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
+import { OpenRecentAction } from 'vs/workbench/browser/actions/windowActions';
 
-export type IOpenRecentAction = IAction & { uri: URI, remoteAuthority?: string };
+export type IOpenRecentAction = IAction & { uri: URI; remoteAuthority?: string };
 
 MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 	submenu: MenuId.MenubarFileMenu,
@@ -133,11 +135,14 @@ export abstract class MenubarControl extends Disposable {
 		'window.nativeTabs'
 	];
 
+	protected mainMenu: IMenu;
 	protected menus: {
 		[index: string]: IMenu | undefined;
 	} = {};
 
 	protected topLevelTitles: { [menu: string]: string } = {};
+
+	protected mainMenuDisposables: DisposableStore;
 
 	protected recentlyOpened: IRecentlyOpened = { files: [], workspaces: [] };
 
@@ -164,29 +169,10 @@ export abstract class MenubarControl extends Disposable {
 
 		super();
 
-		const mainMenu = this._register(this.menuService.createMenu(MenuId.MenubarMainMenu, this.contextKeyService));
-		const mainMenuDisposables = this._register(new DisposableStore());
+		this.mainMenu = this._register(this.menuService.createMenu(MenuId.MenubarMainMenu, this.contextKeyService));
+		this.mainMenuDisposables = this._register(new DisposableStore());
 
-		const setupMenu = () => {
-			mainMenuDisposables.clear();
-			this.menus = {};
-			this.topLevelTitles = {};
-
-			const [, mainMenuActions] = mainMenu.getActions()[0];
-			for (const mainMenuAction of mainMenuActions) {
-				if (mainMenuAction instanceof SubmenuItemAction && typeof mainMenuAction.item.title !== 'string') {
-					this.menus[mainMenuAction.item.title.original] = mainMenuDisposables.add(this.menuService.createMenu(mainMenuAction.item.submenu, this.contextKeyService));
-					this.topLevelTitles[mainMenuAction.item.title.original] = mainMenuAction.item.title.mnemonicTitle ?? mainMenuAction.item.title.value;
-				}
-			}
-		};
-
-		setupMenu();
-
-		mainMenu.onDidChange(() => {
-			setupMenu();
-			this.doUpdateMenubar(true);
-		});
+		this.setupMainMenu();
 
 		this.menuUpdater = this._register(new RunOnceScheduler(() => this.doUpdateMenubar(false), 200));
 
@@ -213,13 +199,30 @@ export abstract class MenubarControl extends Disposable {
 
 		// Update recent menu items on formatter registration
 		this._register(this.labelService.onDidChangeFormatters(() => { this.onDidChangeRecentlyOpened(); }));
+
+		// Listen for changes on the main menu
+		this._register(this.mainMenu.onDidChange(() => { this.setupMainMenu(); this.doUpdateMenubar(true); }));
+	}
+
+	protected setupMainMenu(): void {
+		this.mainMenuDisposables.clear();
+		this.menus = {};
+		this.topLevelTitles = {};
+
+		const [, mainMenuActions] = this.mainMenu.getActions()[0];
+		for (const mainMenuAction of mainMenuActions) {
+			if (mainMenuAction instanceof SubmenuItemAction && typeof mainMenuAction.item.title !== 'string') {
+				this.menus[mainMenuAction.item.title.original] = this.mainMenuDisposables.add(this.menuService.createMenu(mainMenuAction.item.submenu, this.contextKeyService));
+				this.topLevelTitles[mainMenuAction.item.title.original] = mainMenuAction.item.title.mnemonicTitle ?? mainMenuAction.item.title.value;
+			}
+		}
 	}
 
 	protected updateMenubar(): void {
 		this.menuUpdater.schedule();
 	}
 
-	protected calculateActionLabel(action: { id: string; label: string; }): string {
+	protected calculateActionLabel(action: { id: string; label: string }): string {
 		let label = action.label;
 		switch (action.id) {
 			default:
@@ -334,7 +337,7 @@ export abstract class MenubarControl extends Disposable {
 
 			return this.hostService.openWindow([openable], {
 				forceNewWindow: !!openInNewWindow,
-				remoteAuthority
+				remoteAuthority: remoteAuthority || null // local window if remoteAuthority is not set or can not be deducted from the openable
 			});
 		});
 
@@ -358,7 +361,7 @@ export abstract class MenubarControl extends Disposable {
 			{
 				label: localize('goToSetting', "Open Settings"),
 				run: () => {
-					return this.preferencesService.openGlobalSettings(undefined, { query: 'window.titleBarStyle' });
+					return this.preferencesService.openUserSettings({ query: 'window.titleBarStyle' });
 				}
 			}
 		]);
@@ -373,6 +376,7 @@ export class CustomMenubarControl extends MenubarControl {
 	private alwaysOnMnemonics: boolean = false;
 	private focusInsideMenubar: boolean = false;
 	private visible: boolean = true;
+	private actionRunner: IActionRunner;
 	private readonly webNavigationMenu = this._register(this.menuService.createMenu(MenuId.MenubarHomeMenu, this.contextKeyService));
 
 	private readonly _onVisibilityChange: Emitter<boolean>;
@@ -393,6 +397,7 @@ export class CustomMenubarControl extends MenubarControl {
 		@IAccessibilityService accessibilityService: IAccessibilityService,
 		@IThemeService private readonly themeService: IThemeService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
+		@ITelemetryService private readonly telemetryService: ITelemetryService,
 		@IHostService hostService: IHostService,
 		@ICommandService commandService: ICommandService
 	) {
@@ -400,6 +405,11 @@ export class CustomMenubarControl extends MenubarControl {
 
 		this._onVisibilityChange = this._register(new Emitter<boolean>());
 		this._onFocusStateChange = this._register(new Emitter<boolean>());
+
+		this.actionRunner = this._register(new ActionRunner());
+		this.actionRunner.onDidRun(e => {
+			this.telemetryService.publicLog2<WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification>('workbenchActionExecuted', { id: e.action.id, from: 'menu' });
+		});
 
 		this.workspacesService.getRecentlyOpened().then((recentlyOpened) => {
 			this.recentlyOpened = recentlyOpened;
@@ -583,7 +593,7 @@ export class CustomMenubarControl extends MenubarControl {
 
 	private insertActionsBefore(nextAction: IAction, target: IAction[]): void {
 		switch (nextAction.id) {
-			case 'workbench.action.openRecent':
+			case OpenRecentAction.ID:
 				target.push(...this.getOpenRecentActions());
 				break;
 
@@ -693,12 +703,12 @@ export class CustomMenubarControl extends MenubarControl {
 					if (action instanceof SubmenuItemAction) {
 						let submenu = this.menus[action.item.submenu.id];
 						if (!submenu) {
-							submenu = this.menus[action.item.submenu.id] = this.menuService.createMenu(action.item.submenu, this.contextKeyService);
+							submenu = this._register(this.menus[action.item.submenu.id] = this.menuService.createMenu(action.item.submenu, this.contextKeyService));
 							this._register(submenu.onDidChange(() => {
 								if (!this.focusInsideMenubar) {
 									const actions: IAction[] = [];
 									updateActions(menu, actions, topLevelTitle);
-									if (this.menubar) {
+									if (this.menubar && this.topLevelTitles[topLevelTitle]) {
 										this.menubar.updateMenu({ actions: actions, label: mnemonicMenuLabel(this.topLevelTitles[topLevelTitle]) });
 									}
 								}
@@ -810,6 +820,7 @@ export class CustomMenubarControl extends MenubarControl {
 			enableMnemonics: this.currentEnableMenuBarMnemonics,
 			disableAltFocus: this.currentDisableMenuBarAltFocus,
 			visibility: this.currentMenubarVisibility,
+			actionRunner: this.actionRunner,
 			getKeybinding: (action) => this.keybindingService.lookupKeybinding(action.id),
 			alwaysOnMnemonics: this.alwaysOnMnemonics,
 			compactMode: this.currentCompactMenuMode,
@@ -910,10 +921,6 @@ export class CustomMenubarControl extends MenubarControl {
 	}
 
 	layout(dimension: Dimension) {
-		if (this.container) {
-			this.container.style.height = `${dimension.height}px`;
-		}
-
 		this.menubar?.update(this.getMenuBarOptions());
 	}
 

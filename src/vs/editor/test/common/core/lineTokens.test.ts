@@ -4,8 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { IViewLineTokens, LineTokens } from 'vs/editor/common/core/lineTokens';
-import { MetadataConsts } from 'vs/editor/common/modes';
+import { IViewLineTokens, LineTokens } from 'vs/editor/common/tokens/lineTokens';
+import { MetadataConsts } from 'vs/editor/common/languages';
+import { LanguageIdCodec } from 'vs/editor/common/services/languagesRegistry';
 
 suite('LineTokens', () => {
 
@@ -24,7 +25,7 @@ suite('LineTokens', () => {
 			) >>> 0;
 		}
 
-		return new LineTokens(binTokens, text);
+		return new LineTokens(binTokens, text, new LanguageIdCodec());
 	}
 
 	function createTestLineTokens(): LineTokens {
@@ -41,6 +42,56 @@ suite('LineTokens', () => {
 			]
 		);
 	}
+
+	function renderLineTokens(tokens: LineTokens): string {
+		let result = '';
+		const str = tokens.getLineContent();
+		let lastOffset = 0;
+		for (let i = 0; i < tokens.getCount(); i++) {
+			result += str.substring(lastOffset, tokens.getEndOffset(i));
+			result += `(${tokens.getMetadata(i)})`;
+			lastOffset = tokens.getEndOffset(i);
+		}
+		return result;
+	}
+
+	test('withInserted 1', () => {
+		const lineTokens = createTestLineTokens();
+		assert.strictEqual(renderLineTokens(lineTokens), 'Hello (32768)world, (65536)this (98304)is (131072)a (163840)lovely (196608)day(229376)');
+
+		const lineTokens2 = lineTokens.withInserted([
+			{ offset: 0, text: '1', tokenMetadata: 0, },
+			{ offset: 6, text: '2', tokenMetadata: 0, },
+			{ offset: 9, text: '3', tokenMetadata: 0, },
+		]);
+
+		assert.strictEqual(renderLineTokens(lineTokens2), '1(0)Hello (32768)2(0)wor(65536)3(0)ld, (65536)this (98304)is (131072)a (163840)lovely (196608)day(229376)');
+	});
+
+	test('withInserted (tokens at the same position)', () => {
+		const lineTokens = createTestLineTokens();
+		assert.strictEqual(renderLineTokens(lineTokens), 'Hello (32768)world, (65536)this (98304)is (131072)a (163840)lovely (196608)day(229376)');
+
+		const lineTokens2 = lineTokens.withInserted([
+			{ offset: 0, text: '1', tokenMetadata: 0, },
+			{ offset: 0, text: '2', tokenMetadata: 0, },
+			{ offset: 0, text: '3', tokenMetadata: 0, },
+		]);
+
+		assert.strictEqual(renderLineTokens(lineTokens2), '1(0)2(0)3(0)Hello (32768)world, (65536)this (98304)is (131072)a (163840)lovely (196608)day(229376)');
+	});
+
+	test('withInserted (tokens at the end)', () => {
+		const lineTokens = createTestLineTokens();
+		assert.strictEqual(renderLineTokens(lineTokens), 'Hello (32768)world, (65536)this (98304)is (131072)a (163840)lovely (196608)day(229376)');
+
+		const lineTokens2 = lineTokens.withInserted([
+			{ offset: 'Hello world, this is a lovely day'.length - 1, text: '1', tokenMetadata: 0, },
+			{ offset: 'Hello world, this is a lovely day'.length, text: '2', tokenMetadata: 0, },
+		]);
+
+		assert.strictEqual(renderLineTokens(lineTokens2), 'Hello (32768)world, (65536)this (98304)is (131072)a (163840)lovely (196608)da(229376)1(0)y(229376)2(0)');
+	});
 
 	test('basics', () => {
 		const lineTokens = createTestLineTokens();

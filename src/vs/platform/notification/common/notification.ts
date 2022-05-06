@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import BaseSeverity from 'vs/base/common/severity';
-import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
 import { IAction } from 'vs/base/common/actions';
 import { Event } from 'vs/base/common/event';
 import { IDisposable } from 'vs/base/common/lifecycle';
+import BaseSeverity from 'vs/base/common/severity';
+import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
 
 export import Severity = BaseSeverity;
 
@@ -93,7 +93,7 @@ export interface INotification extends INotificationProperties {
 	/**
 	 * The source of the notification appears as additional information.
 	 */
-	readonly source?: string | { label: string; id: string; };
+	readonly source?: string | { label: string; id: string };
 
 	/**
 	 * Actions to show as part of the notification. Primary actions show up as
@@ -357,7 +357,7 @@ export interface INotificationService {
 	 *
 	 * @param severity the severity of the notification. Either `Info`, `Warning` or `Error`.
 	 * @param message the message to show as status.
-	 * @param choices options to be choosen from.
+	 * @param choices options to be chosen from.
 	 * @param options provides some optional configuration options.
 	 *
 	 * @returns a handle on the notification to e.g. hide it or update message, buttons, etc.

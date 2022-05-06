@@ -3,12 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IEnvironmentService } from 'vs/platform/environment/common/environment';
-import { join, dirname, basename } from 'vs/base/common/path';
-import { Promises } from 'vs/base/node/pfs';
+import { RunOnceScheduler } from 'vs/base/common/async';
 import { onUnexpectedError } from 'vs/base/common/errors';
 import { Disposable } from 'vs/base/common/lifecycle';
-import { RunOnceScheduler } from 'vs/base/common/async';
+import { basename, dirname, join } from 'vs/base/common/path';
+import { Promises } from 'vs/base/node/pfs';
+import { IEnvironmentService } from 'vs/platform/environment/common/environment';
 import { ILogService } from 'vs/platform/log/common/log';
 
 export class LogsDataCleaner extends Disposable {
@@ -26,7 +26,7 @@ export class LogsDataCleaner extends Disposable {
 	}
 
 	private async cleanUpOldLogs(): Promise<void> {
-		this.logService.info('[logs cleanup]: Starting to clean up old logs.');
+		this.logService.trace('[logs cleanup]: Starting to clean up old logs.');
 
 		try {
 			const currentLog = basename(this.environmentService.logsPath);
@@ -39,7 +39,7 @@ export class LogsDataCleaner extends Disposable {
 			const sessionsToDelete = oldSessions.slice(0, Math.max(0, oldSessions.length - 9));
 
 			if (sessionsToDelete.length > 0) {
-				this.logService.info(`[logs cleanup]: Removing log folders '${sessionsToDelete.join(', ')}'`);
+				this.logService.trace(`[logs cleanup]: Removing log folders '${sessionsToDelete.join(', ')}'`);
 
 				await Promise.all(sessionsToDelete.map(sessionToDelete => Promises.rm(join(logsRoot, sessionToDelete))));
 			}

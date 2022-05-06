@@ -5,7 +5,7 @@
 
 import {
 	Connection, TextDocuments, InitializeParams, InitializeResult, RequestType,
-	DocumentRangeFormattingRequest, Disposable, TextDocumentPositionParams, ServerCapabilities,
+	DocumentRangeFormattingRequest, Disposable, ServerCapabilities,
 	ConfigurationRequest, ConfigurationParams, DidChangeWorkspaceFoldersNotification,
 	DocumentColorRequest, ColorPresentationRequest, TextDocumentSyncKind, NotificationType, RequestType0, DocumentFormattingRequest, FormattingOptions, TextEdit
 } from 'vscode-languageserver';
@@ -24,14 +24,33 @@ import { getFoldingRanges } from './modes/htmlFolding';
 import { fetchHTMLDataProviders } from './customData';
 import { getSelectionRanges } from './modes/selectionRanges';
 import { SemanticTokenProvider, newSemanticTokenProvider } from './modes/semanticTokens';
-import { RequestService, getRequestService } from './requests';
+import { FileSystemProvider, getFileSystemProvider } from './requests';
 
 namespace CustomDataChangedNotification {
 	export const type: NotificationType<string[]> = new NotificationType('html/customDataChanged');
 }
 
-namespace TagCloseRequest {
-	export const type: RequestType<TextDocumentPositionParams, string | null, any> = new RequestType('html/tag');
+namespace CustomDataContent {
+	export const type: RequestType<string, string, any> = new RequestType('html/customDataContent');
+}
+
+interface AutoInsertParams {
+	/**
+	 * The auto insert kind
+	 */
+	kind: 'autoQuote' | 'autoClose';
+	/**
+	 * The text document.
+	 */
+	textDocument: TextDocumentIdentifier;
+	/**
+	 * The position inside the text document.
+	 */
+	position: Position;
+}
+
+namespace AutoInsertRequest {
+	export const type: RequestType<AutoInsertParams, string, any> = new RequestType('html/autoInsert');
 }
 
 // experimental: semantic tokens
@@ -47,10 +66,19 @@ namespace SemanticTokenLegendRequest {
 }
 
 export interface RuntimeEnvironment {
-	file?: RequestService;
-	http?: RequestService
-	configureHttpRequests?(proxy: string, strictSSL: boolean): void;
+	fileFs?: FileSystemProvider;
+	configureHttpRequests?(proxy: string | undefined, strictSSL: boolean): void;
+	readonly timer: {
+		setImmediate(callback: (...args: any[]) => void, ...args: any[]): Disposable;
+		setTimeout(callback: (...args: any[]) => void, ms: number, ...args: any[]): Disposable;
+	};
 }
+
+
+export interface CustomDataRequestService {
+	getContent(uri: string): Promise<string>;
+}
+
 
 export function startServer(connection: Connection, runtime: RuntimeEnvironment) {
 
@@ -69,11 +97,13 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	let scopedSettingsSupport = false;
 	let workspaceFoldersSupport = false;
 	let foldingRangeLimit = Number.MAX_VALUE;
+	let formatterMaxNumberOfEdits = Number.MAX_VALUE;
 
-	const notReady = () => Promise.reject('Not Ready');
-	let requestService: RequestService = { getContent: notReady, stat: notReady, readDirectory: notReady };
-
-
+	const customDataRequestService: CustomDataRequestService = {
+		getContent(uri: string) {
+			return connection.sendRequest(CustomDataContent.type, uri);
+		}
+	};
 
 	let globalSettings: Settings = {};
 	let documentSettings: { [key: string]: Thenable<Settings> } = {};
@@ -109,17 +139,19 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 			}
 		}
 
-		requestService = getRequestService(initializationOptions?.handledSchemas || ['file'], connection, runtime);
+		const handledSchemas = initializationOptions?.handledSchemas as string[] ?? ['file'];
+
+		const fileSystemProvider = getFileSystemProvider(handledSchemas, connection, runtime);
 
 		const workspace = {
 			get settings() { return globalSettings; },
 			get folders() { return workspaceFolders; }
 		};
 
-		languageModes = getLanguageModes(initializationOptions?.embeddedLanguages || { css: true, javascript: true }, workspace, params.capabilities, requestService);
+		languageModes = getLanguageModes(initializationOptions?.embeddedLanguages || { css: true, javascript: true }, workspace, params.capabilities, fileSystemProvider);
 
 		const dataPaths: string[] = initializationOptions?.dataPaths || [];
-		fetchHTMLDataProviders(dataPaths, requestService).then(dataProviders => {
+		fetchHTMLDataProviders(dataPaths, customDataRequestService).then(dataProviders => {
 			languageModes.updateDataProviders(dataProviders);
 		});
 
@@ -147,6 +179,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 		scopedSettingsSupport = getClientCapability('workspace.configuration', false);
 		workspaceFoldersSupport = getClientCapability('workspace.workspaceFolders', false);
 		foldingRangeLimit = getClientCapability('textDocument.foldingRange.rangeLimit', Number.MAX_VALUE);
+		formatterMaxNumberOfEdits = params.initializationOptions?.customCapabilities?.rangeFormatting?.editLimit || Number.MAX_VALUE;
 		const capabilities: ServerCapabilities = {
 			textDocumentSync: TextDocumentSyncKind.Incremental,
 			completionProvider: clientSnippetSupport ? { resolveProvider: true, triggerCharacters: ['.', ':', '<', '"', '=', '/'] } : undefined,
@@ -215,7 +248,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 		}
 	});
 
-	const pendingValidationRequests: { [uri: string]: NodeJS.Timer } = {};
+	const pendingValidationRequests: { [uri: string]: Disposable } = {};
 	const validationDelayMs = 500;
 
 	// The content of a text document has changed. This event is emitted
@@ -233,14 +266,14 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	function cleanPendingValidation(textDocument: TextDocument): void {
 		const request = pendingValidationRequests[textDocument.uri];
 		if (request) {
-			clearTimeout(request);
+			request.dispose();
 			delete pendingValidationRequests[textDocument.uri];
 		}
 	}
 
 	function triggerValidation(textDocument: TextDocument): void {
 		cleanPendingValidation(textDocument);
-		pendingValidationRequests[textDocument.uri] = setTimeout(() => {
+		pendingValidationRequests[textDocument.uri] = runtime.timer.setTimeout(() => {
 			delete pendingValidationRequests[textDocument.uri];
 			validateTextDocument(textDocument);
 		}, validationDelayMs);
@@ -277,7 +310,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	}
 
 	connection.onCompletion(async (textDocumentPosition, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(textDocumentPosition.textDocument.uri);
 			if (!document) {
 				return null;
@@ -305,7 +338,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onCompletionResolve((item, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const data = item.data;
 			if (data && data.languageId && data.uri) {
 				const mode = languageModes.getMode(data.languageId);
@@ -319,7 +352,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onHover((textDocumentPosition, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(textDocumentPosition.textDocument.uri);
 			if (document) {
 				const mode = languageModes.getModeAtPosition(document, textDocumentPosition.position);
@@ -334,7 +367,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onDocumentHighlight((documentHighlightParams, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(documentHighlightParams.textDocument.uri);
 			if (document) {
 				const mode = languageModes.getModeAtPosition(document, documentHighlightParams.position);
@@ -347,7 +380,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onDefinition((definitionParams, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(definitionParams.textDocument.uri);
 			if (document) {
 				const mode = languageModes.getModeAtPosition(document, definitionParams.position);
@@ -360,7 +393,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onReferences((referenceParams, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(referenceParams.textDocument.uri);
 			if (document) {
 				const mode = languageModes.getModeAtPosition(document, referenceParams.position);
@@ -373,7 +406,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onSignatureHelp((signatureHelpParms, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(signatureHelpParms.textDocument.uri);
 			if (document) {
 				const mode = languageModes.getModeAtPosition(document, signatureHelpParms.position);
@@ -395,21 +428,26 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 			const unformattedTags: string = settings && settings.html && settings.html.format && settings.html.format.unformatted || '';
 			const enabledModes = { css: !unformattedTags.match(/\bstyle\b/), javascript: !unformattedTags.match(/\bscript\b/) };
 
-			return format(languageModes, document, range ?? getFullRange(document), options, settings, enabledModes);
+			const edits = await format(languageModes, document, range ?? getFullRange(document), options, settings, enabledModes);
+			if (edits.length > formatterMaxNumberOfEdits) {
+				const newText = TextDocument.applyEdits(document, edits);
+				return [TextEdit.replace(getFullRange(document), newText)];
+			}
+			return edits;
 		}
 		return [];
 	}
 
 	connection.onDocumentRangeFormatting((formatParams, token) => {
-		return runSafe(() => onFormat(formatParams.textDocument, formatParams.range, formatParams.options), [], `Error while formatting range for ${formatParams.textDocument.uri}`, token);
+		return runSafe(runtime, () => onFormat(formatParams.textDocument, formatParams.range, formatParams.options), [], `Error while formatting range for ${formatParams.textDocument.uri}`, token);
 	});
 
 	connection.onDocumentFormatting((formatParams, token) => {
-		return runSafe(() => onFormat(formatParams.textDocument, undefined, formatParams.options), [], `Error while formatting ${formatParams.textDocument.uri}`, token);
+		return runSafe(runtime, () => onFormat(formatParams.textDocument, undefined, formatParams.options), [], `Error while formatting ${formatParams.textDocument.uri}`, token);
 	});
 
 	connection.onDocumentLinks((documentLinkParam, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(documentLinkParam.textDocument.uri);
 			const links: DocumentLink[] = [];
 			if (document) {
@@ -425,7 +463,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onDocumentSymbol((documentSymbolParms, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(documentSymbolParms.textDocument.uri);
 			const symbols: SymbolInformation[] = [];
 			if (document) {
@@ -440,7 +478,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onRequest(DocumentColorRequest.type, (params, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const infos: ColorInformation[] = [];
 			const document = documents.get(params.textDocument.uri);
 			if (document) {
@@ -455,7 +493,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onRequest(ColorPresentationRequest.type, (params, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(params.textDocument.uri);
 			if (document) {
 				const mode = languageModes.getModeAtPosition(document, params.range.start);
@@ -467,24 +505,24 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 		}, [], `Error while computing color presentations for ${params.textDocument.uri}`, token);
 	});
 
-	connection.onRequest(TagCloseRequest.type, (params, token) => {
-		return runSafe(async () => {
+	connection.onRequest(AutoInsertRequest.type, (params, token) => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(params.textDocument.uri);
 			if (document) {
 				const pos = params.position;
 				if (pos.character > 0) {
 					const mode = languageModes.getModeAtPosition(document, Position.create(pos.line, pos.character - 1));
-					if (mode && mode.doAutoClose) {
-						return mode.doAutoClose(document, pos);
+					if (mode && mode.doAutoInsert) {
+						return mode.doAutoInsert(document, pos, params.kind);
 					}
 				}
 			}
 			return null;
-		}, null, `Error while computing tag close actions for ${params.textDocument.uri}`, token);
+		}, null, `Error while computing auto insert actions for ${params.textDocument.uri}`, token);
 	});
 
 	connection.onFoldingRanges((params, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(params.textDocument.uri);
 			if (document) {
 				return getFoldingRanges(languageModes, document, foldingRangeLimit, token);
@@ -494,7 +532,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onSelectionRanges((params, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(params.textDocument.uri);
 			if (document) {
 				return getSelectionRanges(languageModes, document, params.positions);
@@ -504,7 +542,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onRenameRequest((params, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(params.textDocument.uri);
 			const position: Position = params.position;
 
@@ -520,7 +558,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.languages.onLinkedEditingRange((params, token) => {
-		return <any> /* todo remove when microsoft/vscode-languageserver-node#700 fixed */ runSafe(async () => {
+		return <any> /* todo remove when microsoft/vscode-languageserver-node#700 fixed */ runSafe(runtime, async () => {
 			const document = documents.get(params.textDocument.uri);
 			if (document) {
 				const pos = params.position;
@@ -547,7 +585,7 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	}
 
 	connection.onRequest(SemanticTokenRequest.type, (params, token) => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			const document = documents.get(params.textDocument.uri);
 			if (document) {
 				return getSemanticTokenProvider().getSemanticTokens(document, params.ranges);
@@ -557,13 +595,13 @@ export function startServer(connection: Connection, runtime: RuntimeEnvironment)
 	});
 
 	connection.onRequest(SemanticTokenLegendRequest.type, token => {
-		return runSafe(async () => {
+		return runSafe(runtime, async () => {
 			return getSemanticTokenProvider().legend;
 		}, null, `Error while computing semantic tokens legend`, token);
 	});
 
 	connection.onNotification(CustomDataChangedNotification.type, dataPaths => {
-		fetchHTMLDataProviders(dataPaths, requestService).then(dataProviders => {
+		fetchHTMLDataProviders(dataPaths, customDataRequestService).then(dataProviders => {
 			languageModes.updateDataProviders(dataProviders);
 		});
 	});

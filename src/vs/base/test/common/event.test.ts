@@ -3,11 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 import * as assert from 'assert';
-import { Event, Emitter, EventBufferer, EventMultiplexer, PauseableEmitter, Relay } from 'vs/base/common/event';
-import { IDisposable, DisposableStore } from 'vs/base/common/lifecycle';
-import { errorHandler, setUnexpectedErrorHandler } from 'vs/base/common/errors';
-import { AsyncEmitter, IWaitUntil, timeout } from 'vs/base/common/async';
+import { timeout } from 'vs/base/common/async';
 import { CancellationToken } from 'vs/base/common/cancellation';
+import { errorHandler, setUnexpectedErrorHandler } from 'vs/base/common/errors';
+import { AsyncEmitter, DebounceEmitter, Emitter, Event, EventBufferer, EventMultiplexer, IWaitUntil, MicrotaskEmitter, PauseableEmitter, Relay } from 'vs/base/common/event';
+import { DisposableStore, IDisposable, isDisposable, setDisposableTracker, toDisposable } from 'vs/base/common/lifecycle';
+import { DisposableTracker } from 'vs/base/test/common/utils';
 
 namespace Samples {
 
@@ -38,6 +39,70 @@ namespace Samples {
 	}
 }
 
+suite('Event utils dispose', function () {
+
+	let tracker = new DisposableTracker();
+
+	function assertDisposablesCount(expected: number | Array<IDisposable>) {
+		if (Array.isArray(expected)) {
+			const instances = new Set(expected);
+			const actualInstances = tracker.getTrackedDisposables();
+			assert.strictEqual(actualInstances.length, expected.length);
+
+			for (let item of actualInstances) {
+				assert.ok(instances.has(item));
+			}
+
+		} else {
+			assert.strictEqual(tracker.getTrackedDisposables().length, expected);
+		}
+
+	}
+
+	setup(() => {
+		tracker = new DisposableTracker();
+		setDisposableTracker(tracker);
+	});
+
+	teardown(function () {
+		setDisposableTracker(null);
+	});
+
+	test('no leak with snapshot-utils', function () {
+
+		const store = new DisposableStore();
+		const emitter = new Emitter<number>();
+		const evens = Event.filter(emitter.event, n => n % 2 === 0, store);
+		assertDisposablesCount(1); // snaphot only listen when `evens` is being listened on
+
+		let all = 0;
+		let leaked = evens(n => all += n);
+		assert.ok(isDisposable(leaked));
+		assertDisposablesCount(3);
+
+		emitter.dispose();
+		store.dispose();
+		assertDisposablesCount([leaked]); // leaked is still there
+	});
+
+	test('no leak with debounce-util', function () {
+		const store = new DisposableStore();
+		const emitter = new Emitter<number>();
+		const debounced = Event.debounce(emitter.event, (l) => 0, undefined, undefined, undefined, store);
+		assertDisposablesCount(1); // debounce only listens when `debounce` is being listened on
+
+		let all = 0;
+		let leaked = debounced(n => all += n);
+		assert.ok(isDisposable(leaked));
+		assertDisposablesCount(3);
+
+		emitter.dispose();
+		store.dispose();
+
+		assertDisposablesCount([leaked]); // leaked is still there
+	});
+});
+
 suite('Event', function () {
 
 	const counter = new Samples.EventCounter();
@@ -48,7 +113,6 @@ suite('Event', function () {
 
 		let doc = new Samples.Document3();
 
-		document.createElement('div').onclick = function () { };
 		let subscription = doc.onDidChange(counter.onEvent, counter);
 
 		doc.setText('far');
@@ -251,6 +315,52 @@ suite('Event', function () {
 		assert.deepStrictEqual(calls, [1, 1]);
 	});
 
+	test('DebounceEmitter', async function () {
+		let callCount = 0;
+		let sum = 0;
+		const emitter = new DebounceEmitter<number>({
+			merge: arr => {
+				callCount += 1;
+				return arr.reduce((p, c) => p + c);
+			}
+		});
+
+		emitter.event(e => { sum = e; });
+
+		const p = Event.toPromise(emitter.event);
+
+		emitter.fire(1);
+		emitter.fire(2);
+
+		await p;
+
+		assert.strictEqual(callCount, 1);
+		assert.strictEqual(sum, 3);
+	});
+
+	test('Microtask Emitter', (done) => {
+		let count = 0;
+		assert.strictEqual(count, 0);
+		const emitter = new MicrotaskEmitter<void>();
+		const listener = emitter.event(() => {
+			count++;
+		});
+		emitter.fire();
+		assert.strictEqual(count, 0);
+		emitter.fire();
+		assert.strictEqual(count, 0);
+		// Should wait until the event loop ends and therefore be the last thing called
+		setTimeout(() => {
+			assert.strictEqual(count, 3);
+			done();
+		}, 0);
+		queueMicrotask(() => {
+			assert.strictEqual(count, 2);
+			count++;
+			listener.dispose();
+		});
+	});
+
 	test('Emitter - In Order Delivery', function () {
 		const a = new Emitter<string>();
 		const listener2Events: string[] = [];
@@ -268,6 +378,12 @@ suite('Event', function () {
 
 		// assert that all events are delivered in order
 		assert.deepStrictEqual(listener2Events, ['e1', 'e2']);
+	});
+
+	test('Cannot read property \'_actual\' of undefined #142204', function () {
+		const e = new Emitter<number>();
+		const dispo = e.event(() => { });
+		dispo.dispose.call(undefined);  // assert that disposable can be called with this
 	});
 });
 
@@ -581,55 +697,6 @@ suite('Event utils', () => {
 
 			listener1.dispose();
 			listener2.dispose();
-		});
-	});
-
-	suite('fromPromise', () => {
-
-		test('should emit when done', async () => {
-			let count = 0;
-
-			const event = Event.fromPromise(Promise.resolve(null));
-			event(() => count++);
-
-			assert.strictEqual(count, 0);
-
-			await timeout(10);
-			assert.strictEqual(count, 1);
-		});
-
-		test('should emit when done - setTimeout', async () => {
-			let count = 0;
-
-			const promise = timeout(5);
-			const event = Event.fromPromise(promise);
-			event(() => count++);
-
-			assert.strictEqual(count, 0);
-			await promise;
-			assert.strictEqual(count, 1);
-		});
-	});
-
-	suite('stopwatch', () => {
-
-		test('should emit', () => {
-			const emitter = new Emitter<void>();
-			const event = Event.stopwatch(emitter.event);
-
-			return new Promise((c, e) => {
-				event(duration => {
-					try {
-						assert(duration > 0);
-					} catch (err) {
-						e(err);
-					}
-
-					c(undefined);
-				});
-
-				setTimeout(() => emitter.fire(), 10);
-			});
 		});
 	});
 
@@ -959,5 +1026,35 @@ suite('Event utils', () => {
 			e2.fire(6);
 			assert.deepStrictEqual(result, [2, 4]);
 		});
+	});
+
+	test('runAndSubscribeWithStore', () => {
+		const eventEmitter = new Emitter();
+		const event = eventEmitter.event;
+
+		let i = 0;
+		let log = new Array<any>();
+		const disposable = Event.runAndSubscribeWithStore(event, (e, disposables) => {
+			const idx = i++;
+			log.push({ label: 'handleEvent', data: e || null, idx });
+			disposables.add(toDisposable(() => {
+				log.push({ label: 'dispose', idx });
+			}));
+		});
+
+		log.push({ label: 'fire' });
+		eventEmitter.fire('someEventData');
+
+		log.push({ label: 'disposeAll' });
+		disposable.dispose();
+
+		assert.deepStrictEqual(log, [
+			{ label: 'handleEvent', data: null, idx: 0 },
+			{ label: 'fire' },
+			{ label: 'dispose', idx: 0 },
+			{ label: 'handleEvent', data: 'someEventData', idx: 1 },
+			{ label: 'disposeAll' },
+			{ label: 'dispose', idx: 1 },
+		]);
 	});
 });

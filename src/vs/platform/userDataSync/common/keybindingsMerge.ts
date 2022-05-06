@@ -3,14 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as objects from 'vs/base/common/objects';
-import { parse } from 'vs/base/common/json';
-import { IUserFriendlyKeybinding } from 'vs/platform/keybinding/common/keybinding';
 import { equals } from 'vs/base/common/arrays';
-import { ContextKeyExpr } from 'vs/platform/contextkey/common/contextkey';
-import * as contentUtil from 'vs/platform/userDataSync/common/content';
 import { IStringDictionary } from 'vs/base/common/collections';
+import { parse } from 'vs/base/common/json';
 import { FormattingOptions } from 'vs/base/common/jsonFormatter';
+import * as objects from 'vs/base/common/objects';
+import { ContextKeyExpr } from 'vs/platform/contextkey/common/contextkey';
+import { IUserFriendlyKeybinding } from 'vs/platform/keybinding/common/keybinding';
+import * as contentUtil from 'vs/platform/userDataSync/common/content';
 import { IUserDataSyncUtilService } from 'vs/platform/userDataSync/common/userDataSync';
 
 interface ICompareResult {
@@ -32,7 +32,7 @@ export function parseKeybindings(content: string): IUserFriendlyKeybinding[] {
 	return parse(content) || [];
 }
 
-export async function merge(localContent: string, remoteContent: string, baseContent: string | null, formattingOptions: FormattingOptions, userDataSyncUtilService: IUserDataSyncUtilService): Promise<{ mergeContent: string, hasChanges: boolean, hasConflicts: boolean }> {
+export async function merge(localContent: string, remoteContent: string, baseContent: string | null, formattingOptions: FormattingOptions, userDataSyncUtilService: IUserDataSyncUtilService): Promise<{ mergeContent: string; hasChanges: boolean; hasConflicts: boolean }> {
 	const local = parseKeybindings(localContent);
 	const remote = parseKeybindings(remoteContent);
 	const base = baseContent ? parseKeybindings(baseContent) : null;
@@ -105,7 +105,7 @@ export async function merge(localContent: string, remoteContent: string, baseCon
 	return { mergeContent, hasChanges: true, hasConflicts: commandsMergeResult.conflicts.size > 0 };
 }
 
-function computeMergeResult(localToRemote: ICompareResult, baseToLocal: ICompareResult, baseToRemote: ICompareResult): { added: Set<string>, removed: Set<string>, updated: Set<string>, conflicts: Set<string> } {
+function computeMergeResult(localToRemote: ICompareResult, baseToLocal: ICompareResult, baseToRemote: ICompareResult): { added: Set<string>; removed: Set<string>; updated: Set<string>; conflicts: Set<string> } {
 	const added: Set<string> = new Set<string>();
 	const removed: Set<string> = new Set<string>();
 	const updated: Set<string> = new Set<string>();

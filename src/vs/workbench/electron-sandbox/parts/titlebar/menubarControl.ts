@@ -24,6 +24,7 @@ import { INativeHostService } from 'vs/platform/native/electron-sandbox/native';
 import { IHostService } from 'vs/workbench/services/host/browser/host';
 import { IPreferencesService } from 'vs/workbench/services/preferences/common/preferences';
 import { ICommandService } from 'vs/platform/commands/common/commands';
+import { OpenRecentAction } from 'vs/workbench/browser/actions/windowActions';
 
 export class NativeMenubarControl extends MenubarControl {
 
@@ -47,13 +48,6 @@ export class NativeMenubarControl extends MenubarControl {
 	) {
 		super(menuService, workspacesService, contextKeyService, keybindingService, configurationService, labelService, updateService, storageService, notificationService, preferencesService, environmentService, accessibilityService, hostService, commandService);
 
-		for (const topLevelMenuName of Object.keys(this.topLevelTitles)) {
-			const menu = this.menus[topLevelMenuName];
-			if (menu) {
-				this._register(menu.onDidChange(() => this.updateMenubar()));
-			}
-		}
-
 		(async () => {
 			this.recentlyOpened = await this.workspacesService.getRecentlyOpened();
 
@@ -61,6 +55,17 @@ export class NativeMenubarControl extends MenubarControl {
 		})();
 
 		this.registerListeners();
+	}
+
+	protected override setupMainMenu(): void {
+		super.setupMainMenu();
+
+		for (const topLevelMenuName of Object.keys(this.topLevelTitles)) {
+			const menu = this.menus[topLevelMenuName];
+			if (menu) {
+				this.mainMenuDisposables.add(menu.onDidChange(() => this.updateMenubar()));
+			}
+		}
 	}
 
 	protected doUpdateMenubar(): void {
@@ -115,7 +120,7 @@ export class NativeMenubarControl extends MenubarControl {
 					const submenu = { items: [] };
 
 					if (!this.menus[menuItem.item.submenu.id]) {
-						const menu = this.menus[menuItem.item.submenu.id] = this.menuService.createMenu(menuItem.item.submenu, this.contextKeyService);
+						const menu = this.menus[menuItem.item.submenu.id] = this._register(this.menuService.createMenu(menuItem.item.submenu, this.contextKeyService));
 						this._register(menu.onDidChange(() => this.updateMenubar()));
 					}
 
@@ -134,7 +139,7 @@ export class NativeMenubarControl extends MenubarControl {
 
 					menuToDispose.dispose();
 				} else {
-					if (menuItem.id === 'workbench.action.openRecent') {
+					if (menuItem.id === OpenRecentAction.ID) {
 						const actions = this.getOpenRecentActions().map(this.transformOpenRecentAction);
 						menuToPopulate.items.push(...actions);
 					}

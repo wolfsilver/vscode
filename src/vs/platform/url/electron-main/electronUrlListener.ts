@@ -3,16 +3,16 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Event } from 'vs/base/common/event';
-import { IEnvironmentMainService } from 'vs/platform/environment/electron-main/environmentMainService';
-import { IURLService } from 'vs/platform/url/common/url';
-import { IProductService } from 'vs/platform/product/common/productService';
 import { app, Event as ElectronEvent } from 'electron';
-import { URI } from 'vs/base/common/uri';
-import { IDisposable, DisposableStore, Disposable } from 'vs/base/common/lifecycle';
-import { IWindowsMainService } from 'vs/platform/windows/electron-main/windows';
-import { isWindows } from 'vs/base/common/platform';
 import { disposableTimeout } from 'vs/base/common/async';
+import { Event } from 'vs/base/common/event';
+import { Disposable, DisposableStore, IDisposable } from 'vs/base/common/lifecycle';
+import { isWindows } from 'vs/base/common/platform';
+import { URI } from 'vs/base/common/uri';
+import { IEnvironmentMainService } from 'vs/platform/environment/electron-main/environmentMainService';
+import { IProductService } from 'vs/platform/product/common/productService';
+import { IURLService } from 'vs/platform/url/common/url';
+import { IWindowsMainService } from 'vs/platform/windows/electron-main/windows';
 
 function uriFromRawUrl(url: string): URI | null {
 	try {
@@ -34,13 +34,13 @@ function uriFromRawUrl(url: string): URI | null {
  */
 export class ElectronURLListener {
 
-	private uris: { uri: URI, url: string }[] = [];
+	private uris: { uri: URI; url: string }[] = [];
 	private retryCount = 0;
 	private flushDisposable: IDisposable = Disposable.None;
 	private disposables = new DisposableStore();
 
 	constructor(
-		initialUrisToHandle: { uri: URI, url: string }[],
+		initialUrisToHandle: { uri: URI; url: string }[],
 		private readonly urlService: IURLService,
 		windowsMainService: IWindowsMainService,
 		environmentMainService: IEnvironmentMainService,
@@ -92,7 +92,7 @@ export class ElectronURLListener {
 			return;
 		}
 
-		const uris: { uri: URI, url: string }[] = [];
+		const uris: { uri: URI; url: string }[] = [];
 
 		for (const obj of this.uris) {
 			const handled = await this.urlService.open(obj.uri, { originalUrl: obj.url });

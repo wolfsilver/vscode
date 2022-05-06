@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { ITypeScriptServiceClient, ClientCapability } from '../typescriptService';
+import { ClientCapability, ITypeScriptServiceClient } from '../typescriptService';
 import API from './api';
 import { Disposable } from './dispose';
 
@@ -83,13 +83,13 @@ export function requireMinVersion(
 	);
 }
 
-export function requireConfiguration(
-	language: string,
+export function requireGlobalConfiguration(
+	section: string,
 	configValue: string,
 ) {
 	return new Condition(
 		() => {
-			const config = vscode.workspace.getConfiguration(language, null);
+			const config = vscode.workspace.getConfiguration(section, null);
 			return !!config.get<boolean>(configValue);
 		},
 		vscode.workspace.onDidChangeConfiguration

@@ -18,14 +18,13 @@ const token = process.env['VSCODE_MIXIN_PASSWORD'] || process.env['GITHUB_TOKEN'
 const contentBasePath = 'raw.githubusercontent.com';
 const contentFileNames = ['package.json', 'package-lock.json', 'yarn.lock'];
 async function downloadExtensionDetails(extension) {
-    var _a, _b, _c;
     const extensionLabel = `${extension.name}@${extension.version}`;
     const repository = url.parse(extension.repo).path.substr(1);
     const repositoryContentBaseUrl = `https://${token ? `${token}@` : ''}${contentBasePath}/${repository}/v${extension.version}`;
     const promises = [];
     for (const fileName of contentFileNames) {
         promises.push(new Promise(resolve => {
-            got_1.default(`${repositoryContentBaseUrl}/${fileName}`)
+            (0, got_1.default)(`${repositoryContentBaseUrl}/${fileName}`)
                 .then(response => {
                 resolve({ fileName, body: response.rawBody });
             })
@@ -56,11 +55,11 @@ async function downloadExtensionDetails(extension) {
         }
     }
     // Validation
-    if (!((_a = results.find(r => r.fileName === 'package.json')) === null || _a === void 0 ? void 0 : _a.body)) {
+    if (!results.find(r => r.fileName === 'package.json')?.body) {
         // throw new Error(`The "package.json" file could not be found for the built-in extension - ${extensionLabel}`);
     }
-    if (!((_b = results.find(r => r.fileName === 'package-lock.json')) === null || _b === void 0 ? void 0 : _b.body) &&
-        !((_c = results.find(r => r.fileName === 'yarn.lock')) === null || _c === void 0 ? void 0 : _c.body)) {
+    if (!results.find(r => r.fileName === 'package-lock.json')?.body &&
+        !results.find(r => r.fileName === 'yarn.lock')?.body) {
         // throw new Error(`The "package-lock.json"/"yarn.lock" could not be found for the built-in extension - ${extensionLabel}`);
     }
 }

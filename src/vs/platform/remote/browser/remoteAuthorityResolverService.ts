@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { ResolvedAuthority, IRemoteAuthorityResolverService, ResolverResult, IRemoteConnectionData } from 'vs/platform/remote/common/remoteAuthorityResolver';
-import { RemoteAuthorities } from 'vs/base/common/network';
-import { URI } from 'vs/base/common/uri';
 import { Emitter } from 'vs/base/common/event';
 import { Disposable } from 'vs/base/common/lifecycle';
+import { RemoteAuthorities } from 'vs/base/common/network';
+import { URI } from 'vs/base/common/uri';
+import { IRemoteAuthorityResolverService, IRemoteConnectionData, ResolvedAuthority, ResolverResult } from 'vs/platform/remote/common/remoteAuthorityResolver';
 
 export class RemoteAuthorityResolverService extends Disposable implements IRemoteAuthorityResolverService {
 
@@ -63,7 +63,8 @@ export class RemoteAuthorityResolverService extends Disposable implements IRemot
 			const pieces = authority.split(':');
 			return { authority: { authority, host: pieces[0], port: parseInt(pieces[1], 10), connectionToken } };
 		}
-		return { authority: { authority, host: authority, port: 80, connectionToken } };
+		const port = (/^https:/.test(window.location.href) ? 443 : 80);
+		return { authority: { authority, host: authority, port: port, connectionToken } };
 	}
 
 	_clearResolvedAuthority(authority: string): void {

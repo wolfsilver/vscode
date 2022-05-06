@@ -7,7 +7,7 @@ import { localize } from 'vs/nls';
 import { Action, IAction, Separator } from 'vs/base/common/actions';
 import { $, addDisposableListener, append, clearNode, EventHelper, EventType, getDomNodePagePosition, hide, show } from 'vs/base/browser/dom';
 import { ICommandService } from 'vs/platform/commands/common/commands';
-import { dispose, toDisposable, MutableDisposable, IDisposable, DisposableStore } from 'vs/base/common/lifecycle';
+import { dispose, toDisposable, MutableDisposable, DisposableStore } from 'vs/base/common/lifecycle';
 import { IContextMenuService } from 'vs/platform/contextview/browser/contextView';
 import { IThemeService, IColorTheme, ThemeIcon } from 'vs/platform/theme/common/themeService';
 import { TextBadge, NumberBadge, IBadge, IconBadge, ProgressBadge } from 'vs/workbench/services/activity/common/activity';
@@ -21,7 +21,7 @@ import { CompositeDragAndDropObserver, ICompositeDragAndDrop, Before2D, toggleDr
 import { Color } from 'vs/base/common/color';
 import { IBaseActionViewItemOptions, BaseActionViewItem } from 'vs/base/browser/ui/actionbar/actionViewItems';
 import { Codicon } from 'vs/base/common/codicons';
-import { IHoverService } from 'vs/workbench/services/hover/browser/hover';
+import { IHoverService, IHoverWidget } from 'vs/workbench/services/hover/browser/hover';
 import { RunOnceScheduler } from 'vs/base/common/async';
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
 import { HoverPosition } from 'vs/base/browser/ui/hover/hoverWidget';
@@ -128,7 +128,6 @@ export interface ICompositeBarColors {
 
 export interface IActivityHoverOptions {
 	position: () => HoverPosition;
-	delay: () => number;
 }
 
 export interface IActivityActionViewItemOptions extends IBaseActionViewItemOptions {
@@ -150,8 +149,10 @@ export class ActivityActionViewItem extends BaseActionViewItem {
 	private keybindingLabel: string | undefined | null;
 
 	private readonly hoverDisposables = this._register(new DisposableStore());
-	private readonly hover = this._register(new MutableDisposable<IDisposable>());
+	private lastHover: IHoverWidget | undefined;
 	private readonly showHoverScheduler = new RunOnceScheduler(() => this.showHover(), 0);
+
+	private static _hoverLeaveTime = 0;
 
 	constructor(
 		action: ActivityAction,
@@ -168,7 +169,6 @@ export class ActivityActionViewItem extends BaseActionViewItem {
 		this._register(this.themeService.onDidColorThemeChange(this.onThemeChange, this));
 		this._register(action.onDidChangeActivity(this.updateActivity, this));
 		this._register(Event.filter(keybindingService.onDidUpdateKeybindings, () => this.keybindingLabel !== this.computeKeybindingLabel())(() => this.updateTitle()));
-		this._register(Event.filter(this.configurationService.onDidChangeConfiguration, e => e.affectsConfiguration('workbench.experimental.useCustomHover'))(() => this.updateHover()));
 		this._register(action.onDidChangeBadge(this.updateBadge, this));
 		this._register(toDisposable(() => this.showHoverScheduler.cancel()));
 	}
@@ -183,7 +183,7 @@ export class ActivityActionViewItem extends BaseActionViewItem {
 
 		if (this.label) {
 			if (this.options.icon) {
-				const foreground = this._action.checked ? colors.activeBackgroundColor || colors.activeForegroundColor : colors.inactiveBackgroundColor || colors.inactiveForegroundColor;
+				const foreground = this._action.checked ? colors.activeForegroundColor : colors.inactiveForegroundColor;
 				if (this.activity.iconUrl) {
 					// Apply background color to activity bar item provided with iconUrls
 					this.label.style.backgroundColor = foreground ? foreground.toString() : '';
@@ -255,11 +255,8 @@ export class ActivityActionViewItem extends BaseActionViewItem {
 		this.badge = append(container, $('.badge'));
 		this.badgeContent = append(this.badge, $('.badge-content'));
 
-		// Activity bar active border + background
-		const isActivityBarItem = this.options.icon;
-		if (isActivityBarItem) {
-			append(container, $('.active-item-indicator'));
-		}
+		// pane composite bar active border + background
+		append(container, $('.active-item-indicator'));
 
 		hide(this.badge);
 
@@ -364,12 +361,8 @@ export class ActivityActionViewItem extends BaseActionViewItem {
 		[this.label, this.badge, this.container].forEach(element => {
 			if (element) {
 				element.setAttribute('aria-label', title);
-				if (this.useCustomHover) {
-					element.setAttribute('title', '');
-					element.removeAttribute('title');
-				} else {
-					element.setAttribute('title', title);
-				}
+				element.setAttribute('title', '');
+				element.removeAttribute('title');
 			}
 		});
 	}
@@ -393,39 +386,40 @@ export class ActivityActionViewItem extends BaseActionViewItem {
 		this.hoverDisposables.clear();
 
 		this.updateTitle();
-		if (this.useCustomHover) {
-			this.hoverDisposables.add(addDisposableListener(this.container, EventType.MOUSE_OVER, () => {
-				if (!this.showHoverScheduler.isScheduled()) {
-					this.showHoverScheduler.schedule(this.options.hoverOptions!.delay() || 500);
+		this.hoverDisposables.add(addDisposableListener(this.container, EventType.MOUSE_OVER, () => {
+			if (!this.showHoverScheduler.isScheduled()) {
+				if (Date.now() - ActivityActionViewItem._hoverLeaveTime < 200) {
+					this.showHover(true);
+				} else {
+					this.showHoverScheduler.schedule(this.configurationService.getValue<number>('workbench.hover.delay'));
 				}
-			}, true));
-			this.hoverDisposables.add(addDisposableListener(this.container, EventType.MOUSE_LEAVE, () => {
-				this.hover.value = undefined;
-				this.showHoverScheduler.cancel();
-			}, true));
-			this.hoverDisposables.add(toDisposable(() => {
-				this.hover.value = undefined;
-				this.showHoverScheduler.cancel();
-			}));
-		}
+			}
+		}, true));
+		this.hoverDisposables.add(addDisposableListener(this.container, EventType.MOUSE_LEAVE, () => {
+			ActivityActionViewItem._hoverLeaveTime = Date.now();
+			this.hoverService.hideHover();
+			this.showHoverScheduler.cancel();
+		}, true));
+		this.hoverDisposables.add(toDisposable(() => {
+			this.hoverService.hideHover();
+			this.showHoverScheduler.cancel();
+		}));
 	}
 
-	private showHover(): void {
-		if (this.hover.value) {
+	private showHover(skipFadeInAnimation: boolean = false): void {
+		if (this.lastHover && !this.lastHover.isDisposed) {
 			return;
 		}
 		const hoverPosition = this.options.hoverOptions!.position();
-		this.hover.value = this.hoverService.showHover({
+		this.lastHover = this.hoverService.showHover({
 			target: this.container,
 			hoverPosition,
-			text: this.computeTitle(),
+			content: this.computeTitle(),
 			showPointer: true,
-			compact: true
+			compact: true,
+			hideOnKeyDown: true,
+			skipFadeInAnimation,
 		});
-	}
-
-	private get useCustomHover(): boolean {
-		return !!this.configurationService.getValue<boolean>('workbench.experimental.useCustomHover');
 	}
 
 	override dispose(): void {
@@ -461,7 +455,7 @@ export class CompositeOverflowActivityActionViewItem extends ActivityActionViewI
 
 	constructor(
 		action: ActivityAction,
-		private getOverflowingComposites: () => { id: string, name?: string }[],
+		private getOverflowingComposites: () => { id: string; name?: string }[],
 		private getActiveCompositeId: () => string | undefined,
 		private getBadge: (compositeId: string) => IBadge,
 		private getCompositeOpenAction: (compositeId: string) => IAction,

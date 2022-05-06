@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from 'vs/nls';
-import { TestResultState } from 'vs/workbench/api/common/extHostTypes';
+import { TestResultState, TestRunProfileBitset } from 'vs/workbench/contrib/testing/common/testTypes';
 
 export const enum Testing {
 	// marked as "extension" so that any existing test extensions are assigned to it.
@@ -12,7 +12,6 @@ export const enum Testing {
 	ExplorerViewId = 'workbench.view.testing',
 	OutputPeekContributionId = 'editor.contrib.testingOutputPeek',
 	DecorationsContributionId = 'editor.contrib.testingDecorations',
-	FilterActionId = 'workbench.actions.treeView.testExplorer.filter',
 }
 
 export const enum TestExplorerViewMode {
@@ -22,7 +21,8 @@ export const enum TestExplorerViewMode {
 
 export const enum TestExplorerViewSorting {
 	ByLocation = 'location',
-	ByName = 'name',
+	ByStatus = 'status',
+	ByDuration = 'duration',
 }
 
 export const enum TestExplorerStateFilter {
@@ -45,3 +45,49 @@ export const labelForTestInState = (label: string, state: TestResultState) => lo
 	key: 'testing.treeElementLabel',
 	comment: ['label then the unit tests state, for example "Addition Tests (Running)"'],
 }, '{0} ({1})', label, testStateNames[state]);
+
+export const testConfigurationGroupNames: { [K in TestRunProfileBitset]: string } = {
+	[TestRunProfileBitset.Debug]: localize('testGroup.debug', 'Debug'),
+	[TestRunProfileBitset.Run]: localize('testGroup.run', 'Run'),
+	[TestRunProfileBitset.Coverage]: localize('testGroup.coverage', 'Coverage'),
+};
+
+export const enum TestCommandId {
+	CancelTestRefreshAction = 'testing.cancelTestRefresh',
+	CancelTestRunAction = 'testing.cancelRun',
+	ClearTestResultsAction = 'testing.clearTestResults',
+	CollapseAllAction = 'testing.collapseAll',
+	ConfigureTestProfilesAction = 'testing.configureProfile',
+	DebugAction = 'testing.debug',
+	DebugAllAction = 'testing.debugAll',
+	DebugAtCursor = 'testing.debugAtCursor',
+	DebugCurrentFile = 'testing.debugCurrentFile',
+	DebugFailedTests = 'testing.debugFailTests',
+	DebugLastRun = 'testing.debugLastRun',
+	DebugSelectedAction = 'testing.debugSelected',
+	FilterAction = 'workbench.actions.treeView.testExplorer.filter',
+	GoToTest = 'testing.editFocusedTest',
+	HideTestAction = 'testing.hideTest',
+	OpenOutputPeek = 'testing.openOutputPeek',
+	RefreshTestsAction = 'testing.refreshTests',
+	ReRunFailedTests = 'testing.reRunFailTests',
+	ReRunLastRun = 'testing.reRunLastRun',
+	RunAction = 'testing.run',
+	RunAllAction = 'testing.runAll',
+	RunAtCursor = 'testing.runAtCursor',
+	RunCurrentFile = 'testing.runCurrentFile',
+	RunSelectedAction = 'testing.runSelected',
+	RunUsingProfileAction = 'testing.runUsing',
+	SearchForTestExtension = 'testing.searchForTestExtension',
+	SelectDefaultTestProfiles = 'testing.selectDefaultTestProfiles',
+	ShowMostRecentOutputAction = 'testing.showMostRecentOutput',
+	TestingSortByDurationAction = 'testing.sortByDuration',
+	TestingSortByLocationAction = 'testing.sortByLocation',
+	TestingSortByStatusAction = 'testing.sortByStatus',
+	TestingViewAsListAction = 'testing.viewAsList',
+	TestingViewAsTreeAction = 'testing.viewAsTree',
+	ToggleAutoRun = 'testing.toggleautoRun',
+	ToggleInlineTestOutput = 'testing.toggleInlineTestOutput',
+	UnhideTestAction = 'testing.unhideTest',
+	UnhideAllTestsAction = 'testing.unhideAllTests',
+}

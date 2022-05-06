@@ -4,9 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { ITreeNode, ITreeRenderer, IDataSource } from 'vs/base/browser/ui/tree/tree';
-import { IListVirtualDelegate, IIdentityProvider } from 'vs/base/browser/ui/list/list';
+import { IIdentityProvider, IListVirtualDelegate } from 'vs/base/browser/ui/list/list';
 import { DataTree } from 'vs/base/browser/ui/tree/dataTree';
+import { IDataSource, ITreeNode, ITreeRenderer } from 'vs/base/browser/ui/tree/tree';
 
 interface E {
 	value: number;
@@ -58,7 +58,7 @@ suite('DataTree', function () {
 		};
 
 		const identityProvider = new class implements IIdentityProvider<E> {
-			getId(element: E): { toString(): string; } {
+			getId(element: E): { toString(): string } {
 				return `${element.value}`;
 			}
 		};

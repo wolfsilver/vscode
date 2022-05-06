@@ -4,7 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { DisposableStore, dispose, IDisposable, MultiDisposeError, ReferenceCollection, toDisposable } from 'vs/base/common/lifecycle';
+import { Emitter } from 'vs/base/common/event';
+import { DisposableStore, dispose, IDisposable, markAsSingleton, MultiDisposeError, ReferenceCollection, SafeDisposable, toDisposable } from 'vs/base/common/lifecycle';
+import { ensureNoDisposablesAreLeakedInTestSuite, throwIfDisposablesAreLeaked } from 'vs/base/test/common/utils';
 
 class Disposable implements IDisposable {
 	isDisposed = false;
@@ -105,6 +107,25 @@ suite('Lifecycle', () => {
 		let setValues2 = dispose(setValues);
 		assert.ok(setValues === setValues2);
 	});
+
+	test('SafeDisposable, dispose', function () {
+		let disposed = 0;
+		const actual = () => disposed += 1;
+		const d = new SafeDisposable();
+		d.set(actual);
+		d.dispose();
+		assert.strictEqual(disposed, 1);
+	});
+
+	test('SafeDisposable, unset', function () {
+		let disposed = 0;
+		const actual = () => disposed += 1;
+		const d = new SafeDisposable();
+		d.set(actual);
+		d.unset();
+		d.dispose();
+		assert.strictEqual(disposed, 0);
+	});
 });
 
 suite('DisposableStore', () => {
@@ -188,5 +209,72 @@ suite('Reference Collection', () => {
 
 		ref4.dispose();
 		assert.strictEqual(collection.count, 0);
+	});
+});
+
+function assertThrows(fn: () => void, test: (error: any) => void) {
+	try {
+		fn();
+		assert.fail('Expected function to throw, but it did not.');
+	} catch (e) {
+		assert.ok(test(e));
+	}
+}
+
+suite('No Leakage Utilities', () => {
+	suite('throwIfDisposablesAreLeaked', () => {
+		test('throws if an event subscription is not cleaned up', () => {
+			const eventEmitter = new Emitter();
+
+			assertThrows(() => {
+				throwIfDisposablesAreLeaked(() => {
+					eventEmitter.event(() => {
+						// noop
+					});
+				});
+			}, e => e.message.indexOf('These disposables were not disposed') !== -1);
+		});
+
+		test('throws if a disposable is not disposed', () => {
+			assertThrows(() => {
+				throwIfDisposablesAreLeaked(() => {
+					new DisposableStore();
+				});
+			}, e => e.message.indexOf('These disposables were not disposed') !== -1);
+		});
+
+		test('does not throw if all event subscriptions are cleaned up', () => {
+			const eventEmitter = new Emitter();
+			throwIfDisposablesAreLeaked(() => {
+				eventEmitter.event(() => {
+					// noop
+				}).dispose();
+			});
+		});
+
+		test('does not throw if all disposables are disposed', () => {
+			// This disposable is reported before the test and not tracked.
+			toDisposable(() => { });
+
+			throwIfDisposablesAreLeaked(() => {
+				// This disposable is marked as singleton
+				markAsSingleton(toDisposable(() => { }));
+
+				// These disposables are also marked as singleton
+				const disposableStore = new DisposableStore();
+				disposableStore.add(toDisposable(() => { }));
+				markAsSingleton(disposableStore);
+
+				toDisposable(() => { }).dispose();
+			});
+		});
+	});
+
+	suite('ensureNoDisposablesAreLeakedInTest', () => {
+		ensureNoDisposablesAreLeakedInTestSuite();
+
+		test('Basic Test', () => {
+			toDisposable(() => { }).dispose();
+		});
 	});
 });

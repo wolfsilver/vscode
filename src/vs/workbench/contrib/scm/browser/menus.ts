@@ -135,7 +135,8 @@ class SCMMenusItem implements IDisposable {
 	}
 
 	dispose(): void {
-		this.resourceGroupMenu?.dispose();
+		this._resourceGroupMenu?.dispose();
+		this._resourceFolderMenu?.dispose();
 		this.genericResourceMenu?.dispose();
 
 		if (this.contextualResourceMenus) {
@@ -143,8 +144,6 @@ class SCMMenusItem implements IDisposable {
 			this.contextualResourceMenus.clear();
 			this.contextualResourceMenus = undefined;
 		}
-
-		this.resourceFolderMenu?.dispose();
 	}
 }
 
@@ -235,7 +234,7 @@ export class SCMMenus implements ISCMMenus, IDisposable {
 
 	readonly titleMenu: SCMTitleMenu;
 	private readonly disposables = new DisposableStore();
-	private readonly menus = new Map<ISCMProvider, { menus: SCMRepositoryMenus, dispose: () => void }>();
+	private readonly menus = new Map<ISCMProvider, { menus: SCMRepositoryMenus; dispose: () => void }>();
 
 	constructor(
 		@ISCMService scmService: ISCMService,

@@ -21,19 +21,16 @@ const os = require('os');
 const bootstrap = require('./bootstrap');
 const bootstrapNode = require('./bootstrap-node');
 const { getUserDataPath } = require('./vs/platform/environment/node/userDataPath');
+const { stripComments } = require('./vs/base/common/stripComments');
 /** @type {Partial<IProductConfiguration>} */
 const product = require('../product.json');
 const { app, protocol, crashReporter } = require('electron');
-
-// Disable render process reuse, we still have
-// non-context aware native modules in the renderer.
-app.allowRendererProcessReuse = false;
 
 // Enable portable support
 const portable = bootstrapNode.configurePortable(product);
 
 // Enable ASAR support
-bootstrap.enableASARSupport(undefined);
+bootstrap.enableASARSupport();
 
 // Set userData path before app 'ready' event
 const args = parseCLIArgs();
@@ -48,7 +45,18 @@ const argvConfig = configureCommandlineSwitchesSync(args);
 
 // Configure crash reporter
 perf.mark('code/willStartCrashReporter');
-configureCrashReporter();
+// If a crash-reporter-directory is specified we store the crash reports
+// in the specified directory and don't upload them to the crash server.
+//
+// Appcenter crash reporting is enabled if
+// * enable-crash-reporter runtime argument is set to 'true'
+// * --disable-crash-reporter command line parameter is not set
+//
+// Disable crash reporting in all other cases.
+if (args['crash-reporter-directory'] ||
+	(argvConfig['enable-crash-reporter'] && !args['disable-crash-reporter'])) {
+	configureCrashReporter();
+}
 perf.mark('code/didStartCrashReporter');
 
 // Set logs path before app 'ready' event if running portable
@@ -78,7 +86,7 @@ registerListeners();
  * Support user defined locale: load it early before app('ready')
  * to have more things running in parallel.
  *
- * @type {Promise<NLSConfiguration> | undefined}
+ * @type {Promise<NLSConfiguration> | undefined}
  */
 let nlsConfigurationPromise = undefined;
 
@@ -163,18 +171,12 @@ function configureCommandlineSwitchesSync(cliArgs) {
 		// Persistently enable proposed api via argv.json: https://github.com/microsoft/vscode/issues/99775
 		'enable-proposed-api',
 
-		// TODO@sandbox remove me once testing is done on `vscode-file` protocol
-		// (all traces of `enable-browser-code-loading` and `VSCODE_BROWSER_CODE_LOADING`)
-		'enable-browser-code-loading',
-
 		// Log level to use. Default is 'info'. Allowed values are 'critical', 'error', 'warn', 'info', 'debug', 'trace', 'off'.
 		'log-level'
 	];
 
 	// Read argv config
 	const argvConfig = readArgvConfigSync();
-
-	let browserCodeLoadingStrategy = typeof codeCachePath === 'string' ? 'bypassHeatCheck' : 'none';
 
 	Object.keys(argvConfig).forEach(argvKey => {
 		const argvValue = argvConfig[argvKey];
@@ -210,14 +212,6 @@ function configureCommandlineSwitchesSync(cliArgs) {
 					}
 					break;
 
-				case 'enable-browser-code-loading':
-					if (argvValue === false) {
-						browserCodeLoadingStrategy = undefined;
-					} else if (typeof argvValue === 'string') {
-						browserCodeLoadingStrategy = argvValue;
-					}
-					break;
-
 				case 'log-level':
 					if (typeof argvValue === 'string') {
 						process.argv.push('--log', argvValue);
@@ -231,11 +225,6 @@ function configureCommandlineSwitchesSync(cliArgs) {
 	const jsFlags = getJSFlags(cliArgs);
 	if (jsFlags) {
 		app.commandLine.appendSwitch('js-flags', jsFlags);
-	}
-
-	// Configure vscode-file:// code loading environment
-	if (cliArgs.__sandbox || browserCodeLoadingStrategy) {
-		process.env['VSCODE_BROWSER_CODE_LOADING'] = browserCodeLoadingStrategy || 'bypassHeatCheck';
 	}
 
 	return argvConfig;
@@ -321,8 +310,6 @@ function getArgvConfigPath() {
 
 function configureCrashReporter() {
 
-	// If a crash-reporter-directory is specified we store the crash reports
-	// in the specified directory and don't upload them to the crash server.
 	let crashReporterDirectory = args['crash-reporter-directory'];
 	let submitURL = '';
 	if (crashReporterDirectory) {
@@ -351,11 +338,7 @@ function configureCrashReporter() {
 	// Otherwise we configure the crash reporter from product.json
 	else {
 		const appCenter = product.appCenter;
-		// Disable Appcenter crash reporting if
-		// * --crash-reporter-directory is specified
-		// * enable-crash-reporter runtime argument is set to 'false'
-		// * --disable-crash-reporter command line parameter is set
-		if (appCenter && argvConfig['enable-crash-reporter'] && !args['disable-crash-reporter']) {
+		if (appCenter) {
 			const isWindows = (process.platform === 'win32');
 			const isLinux = (process.platform === 'linux');
 			const isDarwin = (process.platform === 'darwin');
@@ -410,11 +393,12 @@ function configureCrashReporter() {
 	// Start crash reporter for all processes
 	const productName = (product.crashReporter ? product.crashReporter.productName : undefined) || product.nameShort;
 	const companyName = (product.crashReporter ? product.crashReporter.companyName : undefined) || 'Microsoft';
+	const uploadToServer = !process.env['VSCODE_DEV'] && submitURL && !crashReporterDirectory;
 	crashReporter.start({
-		companyName: companyName,
+		companyName,
 		productName: process.env['VSCODE_DEV'] ? `${productName} Dev` : productName,
 		submitURL,
-		uploadToServer: !crashReporterDirectory,
+		uploadToServer,
 		compress: true
 	});
 }
@@ -528,15 +512,13 @@ function getCodeCachePath() {
  * @returns {Promise<string>}
  */
 function mkdirp(dir) {
-	const fs = require('fs');
-
 	return new Promise((resolve, reject) => {
 		fs.mkdir(dir, { recursive: true }, err => (err && err.code !== 'EEXIST') ? reject(err) : resolve(dir));
 	});
 }
 
 /**
- * @param {string | undefined} dir
+ * @param {string | undefined} dir
  * @returns {Promise<string | undefined>}
  */
 async function mkdirpIgnoreError(dir) {
@@ -575,7 +557,7 @@ async function resolveNlsConfiguration() {
 			nlsConfiguration = { locale: 'en', availableLanguages: {} };
 		} else {
 
-			// See above the comment about the loader and case sensitiviness
+			// See above the comment about the loader and case sensitiveness
 			appLocale = appLocale.toLowerCase();
 
 			const { getNLSConfiguration } = require('./vs/base/node/languagePacks');
@@ -589,34 +571,6 @@ async function resolveNlsConfiguration() {
 	}
 
 	return nlsConfiguration;
-}
-
-/**
- * @param {string} content
- * @returns {string}
- */
-function stripComments(content) {
-	const regexp = /("(?:[^\\"]*(?:\\.)?)*")|('(?:[^\\']*(?:\\.)?)*')|(\/\*(?:\r?\n|.)*?\*\/)|(\/{2,}.*?(?:(?:\r?\n)|$))/g;
-
-	return content.replace(regexp, function (match, m1, m2, m3, m4) {
-		// Only one of m1, m2, m3, m4 matches
-		if (m3) {
-			// A block comment. Replace with nothing
-			return '';
-		} else if (m4) {
-			// A line comment. If it ends in \r?\n then keep it.
-			const length_1 = m4.length;
-			if (length_1 > 2 && m4[length_1 - 1] === '\n') {
-				return m4[length_1 - 2] === '\r' ? '\r\n' : '\n';
-			}
-			else {
-				return '';
-			}
-		} else {
-			// We match a string
-			return match;
-		}
-	});
 }
 
 /**

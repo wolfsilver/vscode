@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 import * as vscode from 'vscode';
 
+declare function require(path: string): any;
+
 const enabledSetting = 'markdown.math.enabled';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -22,7 +24,9 @@ export function activate(context: vscode.ExtensionContext) {
 		extendMarkdownIt(md: any) {
 			if (isEnabled()) {
 				const katex = require('@iktakahiro/markdown-it-katex');
-				return md.use(katex);
+				const options = { globalGroup: true, macros: {} };
+				md.core.ruler.push('reset-katex-macros', () => { options.macros = {}; });
+				return md.use(katex, options);
 			}
 			return md;
 		}

@@ -3,13 +3,13 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { localize } from 'vs/nls';
-import { CancellationToken } from 'vs/base/common/cancellation';
-import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { IConfigurationRegistry, Extensions, ConfigurationScope, IConfigurationNode } from 'vs/platform/configuration/common/configurationRegistry';
-import { Registry } from 'vs/platform/registry/common/platform';
 import { streamToBuffer } from 'vs/base/common/buffer';
-import { IRequestOptions, IRequestContext } from 'vs/base/parts/request/common/request';
+import { CancellationToken } from 'vs/base/common/cancellation';
+import { IRequestContext, IRequestOptions } from 'vs/base/parts/request/common/request';
+import { localize } from 'vs/nls';
+import { ConfigurationScope, Extensions, IConfigurationNode, IConfigurationRegistry } from 'vs/platform/configuration/common/configurationRegistry';
+import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
+import { Registry } from 'vs/platform/registry/common/platform';
 
 export const IRequestService = createDecorator<IRequestService>('requestService');
 
@@ -30,14 +30,18 @@ function hasNoContent(context: IRequestContext): boolean {
 }
 
 export async function asText(context: IRequestContext): Promise<string | null> {
-	if (!isSuccess(context)) {
-		throw new Error('Server returned ' + context.res.statusCode);
-	}
 	if (hasNoContent(context)) {
 		return null;
 	}
 	const buffer = await streamToBuffer(context.stream);
 	return buffer.toString();
+}
+
+export async function asTextOrError(context: IRequestContext): Promise<string | null> {
+	if (!isSuccess(context)) {
+		throw new Error('Server returned ' + context.res.statusCode);
+	}
+	return asText(context);
 }
 
 export async function asJson<T = {}>(context: IRequestContext): Promise<T | null> {
@@ -73,9 +77,7 @@ export function updateProxyConfigurationsScope(scope: ConfigurationScope): void 
 let proxyConfiguration: IConfigurationNode | undefined;
 function registerProxyConfigurations(scope: ConfigurationScope): void {
 	const configurationRegistry = Registry.as<IConfigurationRegistry>(Extensions.Configuration);
-	if (proxyConfiguration) {
-		configurationRegistry.deregisterConfigurations([proxyConfiguration]);
-	}
+	const oldProxyConfiguration = proxyConfiguration;
 	proxyConfiguration = {
 		id: 'http',
 		order: 15,
@@ -122,7 +124,7 @@ function registerProxyConfigurations(scope: ConfigurationScope): void {
 			}
 		}
 	};
-	configurationRegistry.registerConfiguration(proxyConfiguration);
+	configurationRegistry.updateConfigurations({ add: [proxyConfiguration], remove: oldProxyConfiguration ? [oldProxyConfiguration] : [] });
 }
 
 registerProxyConfigurations(ConfigurationScope.MACHINE);

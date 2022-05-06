@@ -4,15 +4,15 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as cp from 'child_process';
+import { FileAccess } from 'vs/base/common/network';
 import * as path from 'vs/base/common/path';
+import * as env from 'vs/base/common/platform';
+import { sanitizeProcessEnvironment } from 'vs/base/common/processes';
+import * as pfs from 'vs/base/node/pfs';
 import * as processes from 'vs/base/node/processes';
 import * as nls from 'vs/nls';
-import * as pfs from 'vs/base/node/pfs';
-import * as env from 'vs/base/common/platform';
-import { IExternalTerminalSettings, DEFAULT_TERMINAL_OSX, ITerminalForPlatform, IExternalTerminalMainService } from 'vs/platform/externalTerminal/common/externalTerminal';
-import { FileAccess } from 'vs/base/common/network';
+import { DEFAULT_TERMINAL_OSX, IExternalTerminalMainService, IExternalTerminalSettings, ITerminalForPlatform } from 'vs/platform/externalTerminal/common/externalTerminal';
 import { ITerminalEnvironment } from 'vs/platform/terminal/common/terminal';
-import { sanitizeProcessEnvironment } from 'vs/base/common/processes';
 
 const TERMINAL_TITLE = nls.localize('console.title', "VS Code Console");
 
@@ -20,8 +20,11 @@ abstract class ExternalTerminalService {
 	public _serviceBrand: undefined;
 
 	async getDefaultTerminalForPlatforms(): Promise<ITerminalForPlatform> {
-		const linuxTerminal = await LinuxExternalTerminalService.getDefaultTerminalLinuxReady();
-		return { windows: WindowsExternalTerminalService.getDefaultTerminalWindows(), linux: linuxTerminal, osx: 'xterm' };
+		return {
+			windows: WindowsExternalTerminalService.getDefaultTerminalWindows(),
+			linux: await LinuxExternalTerminalService.getDefaultTerminalLinuxReady(),
+			osx: 'xterm'
+		};
 	}
 }
 
@@ -144,8 +147,11 @@ export class MacExternalTerminalService extends ExternalTerminalService implemen
 				}
 
 				if (envVars) {
-					for (let key in envVars) {
-						const value = envVars[key];
+					// merge environment variables into a copy of the process.env
+					const env = Object.assign({}, getSanitizedEnvironment(process), envVars);
+
+					for (let key in env) {
+						const value = env[key];
 						if (value === null) {
 							osaArgs.push('-u');
 							osaArgs.push(key);
@@ -190,7 +196,8 @@ export class MacExternalTerminalService extends ExternalTerminalService implemen
 			if (cwd) {
 				args.push(cwd);
 			}
-			const child = spawner.spawn('/usr/bin/open', args);
+			const env = getSanitizedEnvironment(process);
+			const child = spawner.spawn('/usr/bin/open', args, { cwd, env });
 			child.on('error', e);
 			child.on('exit', () => c());
 		});
@@ -226,8 +233,9 @@ export class LinuxExternalTerminalService extends ExternalTerminalService implem
 				const bashCommand = `${quote(args)}; echo; read -p "${LinuxExternalTerminalService.WAIT_MESSAGE}" -n1;`;
 				termArgs.push(`''${bashCommand}''`);	// wrapping argument in two sets of ' because node is so "friendly" that it removes one set...
 
+
 				// merge environment variables into a copy of the process.env
-				const env = Object.assign({}, process.env, envVars);
+				const env = Object.assign({}, getSanitizedEnvironment(process), envVars);
 
 				// delete environment variables that have a null value
 				Object.keys(env).filter(v => env[v] === null).forEach(key => delete env[key]);
@@ -265,9 +273,11 @@ export class LinuxExternalTerminalService extends ExternalTerminalService implem
 
 	public static async getDefaultTerminalLinuxReady(): Promise<string> {
 		if (!LinuxExternalTerminalService._DEFAULT_TERMINAL_LINUX_READY) {
-			LinuxExternalTerminalService._DEFAULT_TERMINAL_LINUX_READY = new Promise(async r => {
-				if (env.isLinux) {
-					const isDebian = await pfs.Promises.exists('/etc/debian_version');
+			if (!env.isLinux) {
+				LinuxExternalTerminalService._DEFAULT_TERMINAL_LINUX_READY = Promise.resolve('xterm');
+			} else {
+				const isDebian = await pfs.Promises.exists('/etc/debian_version');
+				LinuxExternalTerminalService._DEFAULT_TERMINAL_LINUX_READY = new Promise<string>(r => {
 					if (isDebian) {
 						r('x-terminal-emulator');
 					} else if (process.env.DESKTOP_SESSION === 'gnome' || process.env.DESKTOP_SESSION === 'gnome-classic') {
@@ -281,10 +291,8 @@ export class LinuxExternalTerminalService extends ExternalTerminalService implem
 					} else {
 						r('xterm');
 					}
-				} else {
-					r('xterm');
-				}
-			});
+				});
+			}
 		}
 		return LinuxExternalTerminalService._DEFAULT_TERMINAL_LINUX_READY;
 	}
@@ -304,7 +312,7 @@ export class LinuxExternalTerminalService extends ExternalTerminalService implem
 }
 
 function getSanitizedEnvironment(process: NodeJS.Process) {
-	const env = process.env;
+	const env = { ...process.env };
 	sanitizeProcessEnvironment(env);
 	return env;
 }
@@ -312,7 +320,7 @@ function getSanitizedEnvironment(process: NodeJS.Process) {
 /**
  * tries to turn OS errors into more meaningful error messages
  */
-function improveError(err: Error & { errno?: string, path?: string }): Error {
+function improveError(err: Error & { errno?: string; path?: string }): Error {
 	if ('errno' in err && err['errno'] === 'ENOENT' && 'path' in err && typeof err['path'] === 'string') {
 		return new Error(nls.localize('ext.term.app.not.found', "can't find terminal application '{0}'", err['path']));
 	}

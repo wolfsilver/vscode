@@ -3,14 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { ResolvedKeybinding } from 'vs/base/common/keyCodes';
-import { URI } from 'vs/base/common/uri';
 import { Event } from 'vs/base/common/event';
-import { IDisposable } from 'vs/base/common/lifecycle';
 import { IMatch } from 'vs/base/common/filters';
 import { IItemAccessor } from 'vs/base/common/fuzzyScorer';
+import { ResolvedKeybinding } from 'vs/base/common/keybindings';
+import { IDisposable } from 'vs/base/common/lifecycle';
 import { Schemas } from 'vs/base/common/network';
 import Severity from 'vs/base/common/severity';
+import { URI } from 'vs/base/common/uri';
 
 export interface IQuickPickItemHighlights {
 	label?: IMatch[];
@@ -105,6 +105,13 @@ export interface IPickOptions<T extends IQuickPickItem> {
 	quickNavigate?: IQuickNavigateConfiguration;
 
 	/**
+	 * Hides the input box from the picker UI. This is typically used
+	 * in combination with quick-navigation where no search UI should
+	 * be presented.
+	 */
+	hideInput?: boolean;
+
+	/**
 	 * a context key to set when this picker is active
 	 */
 	contextKey?: string;
@@ -156,7 +163,7 @@ export interface IInputOptions {
 	/**
 	 * an optional function that is used to validate user input.
 	 */
-	validateInput?: (input: string) => Promise<string | null | undefined | { content: string, severity: Severity }>;
+	validateInput?: (input: string) => Promise<string | null | undefined | { content: string; severity: Severity }>;
 }
 
 export enum QuickInputHideReason {
@@ -289,6 +296,8 @@ export interface IQuickPick<T extends IQuickPickItem> extends IQuickInput {
 
 	autoFocusOnList: boolean;
 
+	keepScrollPosition: boolean;
+
 	quickNavigate: IQuickNavigateConfiguration | undefined;
 
 	activeItems: ReadonlyArray<T>;
@@ -351,7 +360,7 @@ export interface IInputBox extends IQuickInput {
 
 export interface IQuickInputButton {
 	/** iconPath or iconClass required */
-	iconPath?: { dark: URI; light?: URI; };
+	iconPath?: { dark: URI; light?: URI };
 	/** iconPath or iconClass required */
 	iconClass?: string;
 	tooltip?: string;
@@ -380,7 +389,7 @@ export type IQuickPickItemWithResource = IQuickPickItem & { resource?: URI };
 
 export class QuickPickItemScorerAccessor implements IItemAccessor<IQuickPickItemWithResource> {
 
-	constructor(private options?: { skipDescription?: boolean, skipPath?: boolean }) { }
+	constructor(private options?: { skipDescription?: boolean; skipPath?: boolean }) { }
 
 	getItemLabel(entry: IQuickPickItemWithResource): string {
 		return entry.label;

@@ -3,17 +3,17 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable } from 'vs/base/common/lifecycle';
-import { ILocalExtension } from 'vs/platform/extensionManagement/common/extensionManagement';
-import { ILogService } from 'vs/platform/log/common/log';
-import { fork, ChildProcess } from 'child_process';
-import { toErrorMessage } from 'vs/base/common/errorMessage';
-import { join } from 'vs/base/common/path';
+import { ChildProcess, fork } from 'child_process';
 import { Limiter } from 'vs/base/common/async';
+import { toErrorMessage } from 'vs/base/common/errorMessage';
 import { Event } from 'vs/base/common/event';
+import { Disposable } from 'vs/base/common/lifecycle';
 import { Schemas } from 'vs/base/common/network';
+import { join } from 'vs/base/common/path';
 import { Promises } from 'vs/base/node/pfs';
 import { IEnvironmentService } from 'vs/platform/environment/common/environment';
+import { ILocalExtension } from 'vs/platform/extensionManagement/common/extensionManagement';
+import { ILogService } from 'vs/platform/log/common/log';
 
 export class ExtensionsLifecycle extends Disposable {
 
@@ -37,7 +37,7 @@ export class ExtensionsLifecycle extends Disposable {
 		return Promises.rm(this.getExtensionStoragePath(extension)).then(undefined, e => this.logService.error('Error while removing extension storage path', e));
 	}
 
-	private parseScript(extension: ILocalExtension, type: string): { script: string, args: string[] } | null {
+	private parseScript(extension: ILocalExtension, type: string): { script: string; args: string[] } | null {
 		const scriptKey = `vscode:${type}`;
 		if (extension.location.scheme === Schemas.file && extension.manifest && extension.manifest['scripts'] && typeof extension.manifest['scripts'][scriptKey] === 'string') {
 			const script = (<string>extension.manifest['scripts'][scriptKey]).split(' ');
@@ -97,7 +97,7 @@ export class ExtensionsLifecycle extends Disposable {
 		const extensionUninstallProcess = fork(uninstallHook, [`--type=extension-post-${lifecycleType}`, ...args], opts);
 
 		// Catch all output coming from the process
-		type Output = { data: string, format: string[] };
+		type Output = { data: string; format: string[] };
 		extensionUninstallProcess.stdout!.setEncoding('utf8');
 		extensionUninstallProcess.stderr!.setEncoding('utf8');
 

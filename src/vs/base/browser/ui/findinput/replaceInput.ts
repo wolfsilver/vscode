@@ -3,21 +3,21 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import 'vs/css!./findInput';
-
-import * as nls from 'vs/nls';
 import * as dom from 'vs/base/browser/dom';
-import { IMessage as InputBoxMessage, IInputValidator, IInputBoxStyles, HistoryInputBox } from 'vs/base/browser/ui/inputbox/inputBox';
-import { IContextViewProvider } from 'vs/base/browser/ui/contextview/contextview';
-import { Widget } from 'vs/base/browser/ui/widget';
-import { Event, Emitter } from 'vs/base/common/event';
 import { IKeyboardEvent } from 'vs/base/browser/keyboardEvent';
 import { IMouseEvent } from 'vs/base/browser/mouseEvent';
-import { KeyCode } from 'vs/base/common/keyCodes';
-import { Color } from 'vs/base/common/color';
-import { ICheckboxStyles, Checkbox } from 'vs/base/browser/ui/checkbox/checkbox';
-import { IFindInputCheckboxOpts } from 'vs/base/browser/ui/findinput/findInputCheckboxes';
+import { Toggle, IToggleStyles } from 'vs/base/browser/ui/toggle/toggle';
+import { IContextViewProvider } from 'vs/base/browser/ui/contextview/contextview';
+import { IFindInputToggleOpts } from 'vs/base/browser/ui/findinput/findInputToggles';
+import { HistoryInputBox, IInputBoxStyles, IInputValidator, IMessage as InputBoxMessage } from 'vs/base/browser/ui/inputbox/inputBox';
+import { Widget } from 'vs/base/browser/ui/widget';
 import { Codicon } from 'vs/base/common/codicons';
+import { Color } from 'vs/base/common/color';
+import { Emitter, Event } from 'vs/base/common/event';
+import { KeyCode } from 'vs/base/common/keyCodes';
+import 'vs/css!./findInput';
+import * as nls from 'vs/nls';
+
 
 export interface IReplaceInputOptions extends IReplaceInputStyles {
 	readonly placeholder?: string;
@@ -30,6 +30,7 @@ export interface IReplaceInputOptions extends IReplaceInputStyles {
 
 	readonly appendPreserveCaseLabel?: string;
 	readonly history?: string[];
+	readonly showHistoryHint?: () => boolean;
 }
 
 export interface IReplaceInputStyles extends IInputBoxStyles {
@@ -39,10 +40,10 @@ export interface IReplaceInputStyles extends IInputBoxStyles {
 }
 
 const NLS_DEFAULT_LABEL = nls.localize('defaultLabel', "input");
-const NLS_PRESERVE_CASE_LABEL = nls.localize('label.preserveCaseCheckbox', "Preserve Case");
+const NLS_PRESERVE_CASE_LABEL = nls.localize('label.preserveCaseToggle', "Preserve Case");
 
-export class PreserveCaseCheckbox extends Checkbox {
-	constructor(opts: IFindInputCheckboxOpts) {
+export class PreserveCaseToggle extends Toggle {
+	constructor(opts: IFindInputToggleOpts) {
 		super({
 			// TODO: does this need its own icon?
 			icon: Codicon.preserveCase,
@@ -82,7 +83,7 @@ export class ReplaceInput extends Widget {
 	private inputValidationErrorBackground?: Color;
 	private inputValidationErrorForeground?: Color;
 
-	private preserveCase: PreserveCaseCheckbox;
+	private preserveCase: PreserveCaseToggle;
 	private cachedOptionsWidth: number = 0;
 	public domNode: HTMLElement;
 	public inputBox: HistoryInputBox;
@@ -157,12 +158,13 @@ export class ReplaceInput extends Widget {
 			inputValidationErrorForeground: this.inputValidationErrorForeground,
 			inputValidationErrorBorder: this.inputValidationErrorBorder,
 			history,
+			showHistoryHint: options.showHistoryHint,
 			flexibleHeight,
 			flexibleWidth,
 			flexibleMaxHeight
 		}));
 
-		this.preserveCase = this._register(new PreserveCaseCheckbox({
+		this.preserveCase = this._register(new PreserveCaseToggle({
 			appendTitle: appendPreserveCaseLabel,
 			isChecked: false,
 			inputActiveOptionBorder: this.inputActiveOptionBorder,
@@ -300,12 +302,12 @@ export class ReplaceInput extends Widget {
 
 	protected applyStyles(): void {
 		if (this.domNode) {
-			const checkBoxStyles: ICheckboxStyles = {
+			const toggleStyles: IToggleStyles = {
 				inputActiveOptionBorder: this.inputActiveOptionBorder,
 				inputActiveOptionForeground: this.inputActiveOptionForeground,
 				inputActiveOptionBackground: this.inputActiveOptionBackground,
 			};
-			this.preserveCase.style(checkBoxStyles);
+			this.preserveCase.style(toggleStyles);
 
 			const inputBoxStyles: IInputBoxStyles = {
 				inputBackground: this.inputBackground,

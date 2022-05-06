@@ -3,25 +3,26 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { getOrDefault } from 'vs/base/common/objects';
-import { IDisposable, dispose, Disposable, toDisposable, DisposableStore } from 'vs/base/common/lifecycle';
-import { Gesture, EventType as TouchEventType, GestureEvent } from 'vs/base/browser/touch';
-import { Event, Emitter } from 'vs/base/common/event';
-import { SmoothScrollableElement } from 'vs/base/browser/ui/scrollbar/scrollableElement';
-import { ScrollEvent, ScrollbarVisibility, INewScrollDimensions, Scrollable } from 'vs/base/common/scrollable';
-import { RangeMap, shift } from './rangeMap';
-import { IListVirtualDelegate, IListRenderer, IListMouseEvent, IListTouchEvent, IListGestureEvent, IListDragEvent, IListDragAndDrop, ListDragOverEffect } from './list';
-import { RowCache, IRow } from './rowCache';
-import { ISpliceable } from 'vs/base/common/sequence';
-import { memoize } from 'vs/base/common/decorators';
-import { Range, IRange } from 'vs/base/common/range';
-import { equals, distinct } from 'vs/base/common/arrays';
-import { DataTransfers, StaticDND, IDragAndDropData } from 'vs/base/browser/dnd';
-import { disposableTimeout, Delayer } from 'vs/base/common/async';
 import { isFirefox } from 'vs/base/browser/browser';
-import { IMouseWheelEvent } from 'vs/base/browser/mouseEvent';
+import { DataTransfers, IDragAndDropData, StaticDND } from 'vs/base/browser/dnd';
 import { $, addDisposableListener, animate, getContentHeight, getContentWidth, getTopLeftOffset, scheduleAtNextAnimationFrame } from 'vs/base/browser/dom';
 import { DomEmitter } from 'vs/base/browser/event';
+import { IMouseWheelEvent } from 'vs/base/browser/mouseEvent';
+import { EventType as TouchEventType, Gesture, GestureEvent } from 'vs/base/browser/touch';
+import { SmoothScrollableElement } from 'vs/base/browser/ui/scrollbar/scrollableElement';
+import { distinct, equals } from 'vs/base/common/arrays';
+import { Delayer, disposableTimeout } from 'vs/base/common/async';
+import { memoize } from 'vs/base/common/decorators';
+import { Emitter, Event } from 'vs/base/common/event';
+import { Disposable, DisposableStore, dispose, IDisposable, toDisposable } from 'vs/base/common/lifecycle';
+import { getOrDefault } from 'vs/base/common/objects';
+import { IRange, Range } from 'vs/base/common/range';
+import { INewScrollDimensions, Scrollable, ScrollbarVisibility, ScrollEvent } from 'vs/base/common/scrollable';
+import { ISpliceable } from 'vs/base/common/sequence';
+import { IListDragAndDrop, IListDragEvent, IListGestureEvent, IListMouseEvent, IListRenderer, IListTouchEvent, IListVirtualDelegate, ListDragOverEffect } from 'vs/base/browser/ui/list/list';
+import { RangeMap, shift } from 'vs/base/browser/ui/list/rangeMap';
+import { IRow, RowCache } from 'vs/base/browser/ui/list/rowCache';
+import { IObservableValue } from 'vs/base/common/observableValue';
 
 interface IItem<T> {
 	readonly id: string;
@@ -35,6 +36,7 @@ interface IItem<T> {
 	uri: string | undefined;
 	dropTarget: boolean;
 	dragStartDisposable: IDisposable;
+	checkedDisposable: IDisposable;
 }
 
 export interface IListViewDragAndDrop<T> extends IListDragAndDrop<T> {
@@ -45,13 +47,15 @@ export interface IListViewAccessibilityProvider<T> {
 	getSetSize?(element: T, index: number, listLength: number): number;
 	getPosInSet?(element: T, index: number): number;
 	getRole?(element: T): string | undefined;
-	isChecked?(element: T): boolean | undefined;
+	isChecked?(element: T): boolean | IObservableValue<boolean> | undefined;
 }
 
 export interface IListViewOptionsUpdate {
 	readonly additionalScrollHeight?: number;
 	readonly smoothScrolling?: boolean;
 	readonly horizontalScrolling?: boolean;
+	readonly mouseWheelScrollSensitivity?: number;
+	readonly fastScrollSensitivity?: number;
 }
 
 export interface IListViewOptions<T> extends IListViewOptionsUpdate {
@@ -172,7 +176,7 @@ class ListViewAccessibilityProvider<T> implements Required<IListViewAccessibilit
 	readonly getSetSize: (element: any, index: number, listLength: number) => number;
 	readonly getPosInSet: (element: any, index: number) => number;
 	readonly getRole: (element: T) => string | undefined;
-	readonly isChecked: (element: T) => boolean | undefined;
+	readonly isChecked: (element: T) => boolean | IObservableValue<boolean> | undefined;
 
 	constructor(accessibilityProvider?: IListViewAccessibilityProvider<T>) {
 		if (accessibilityProvider?.getSetSize) {
@@ -201,6 +205,16 @@ class ListViewAccessibilityProvider<T> implements Required<IListViewAccessibilit
 	}
 }
 
+/**
+ * The {@link ListView} is a virtual scrolling engine.
+ *
+ * Given that it only renders elements within its viewport, it can hold large
+ * collections of elements and stay very performant. The performance bottleneck
+ * usually lies within the user's rendering code for each element.
+ *
+ * @remarks It is a low-level widget, not meant to be used directly. Refer to the
+ * List widget instead.
+ */
 export class ListView<T> implements ISpliceable<T>, IDisposable {
 
 	private static InstanceCount = 0;
@@ -249,6 +263,7 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 	get onDidScroll(): Event<ScrollEvent> { return this.scrollableElement.onScroll; }
 	get onWillScroll(): Event<ScrollEvent> { return this.scrollableElement.onWillScroll; }
 	get containerDomNode(): HTMLElement { return this.rowsContainer; }
+	get scrollableElementDomNode(): HTMLElement { return this.scrollableElement.getDomNode(); }
 
 	private _horizontalScrolling: boolean = false;
 	private get horizontalScrolling(): boolean { return this._horizontalScrolling; }
@@ -327,12 +342,18 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 
 		this.disposables.add(Gesture.addTarget(this.rowsContainer));
 
-		this.scrollable = new Scrollable(getOrDefault(options, o => o.smoothScrolling, false) ? 125 : 0, cb => scheduleAtNextAnimationFrame(cb));
+		this.scrollable = new Scrollable({
+			forceIntegerValues: true,
+			smoothScrollDuration: getOrDefault(options, o => o.smoothScrolling, false) ? 125 : 0,
+			scheduleAtNextAnimationFrame: cb => scheduleAtNextAnimationFrame(cb)
+		});
 		this.scrollableElement = this.disposables.add(new SmoothScrollableElement(this.rowsContainer, {
 			alwaysConsumeMouseWheel: getOrDefault(options, o => o.alwaysConsumeMouseWheel, DefaultOptions.alwaysConsumeMouseWheel),
 			horizontal: ScrollbarVisibility.Auto,
 			vertical: getOrDefault(options, o => o.verticalScrollMode, DefaultOptions.verticalScrollMode),
 			useShadows: getOrDefault(options, o => o.useShadows, DefaultOptions.useShadows),
+			mouseWheelScrollSensitivity: options.mouseWheelScrollSensitivity,
+			fastScrollSensitivity: options.fastScrollSensitivity
 		}, this.scrollable));
 
 		this.domNode.appendChild(this.scrollableElement.getDomNode());
@@ -347,7 +368,7 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 
 		this.disposables.add(addDisposableListener(this.domNode, 'dragover', e => this.onDragOver(this.toDragEvent(e))));
 		this.disposables.add(addDisposableListener(this.domNode, 'drop', e => this.onDrop(this.toDragEvent(e))));
-		this.disposables.add(addDisposableListener(this.domNode, 'dragleave', _ => this.onDragLeave()));
+		this.disposables.add(addDisposableListener(this.domNode, 'dragleave', e => this.onDragLeave(this.toDragEvent(e))));
 		this.disposables.add(addDisposableListener(this.domNode, 'dragend', e => this.onDragEnd(e)));
 
 		this.setRowLineHeight = getOrDefault(options, o => o.setRowLineHeight, DefaultOptions.setRowLineHeight);
@@ -371,18 +392,38 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 		if (options.horizontalScrolling !== undefined) {
 			this.horizontalScrolling = options.horizontalScrolling;
 		}
+
+		if (options.mouseWheelScrollSensitivity !== undefined) {
+			this.scrollableElement.updateOptions({ mouseWheelScrollSensitivity: options.mouseWheelScrollSensitivity });
+		}
+
+		if (options.fastScrollSensitivity !== undefined) {
+			this.scrollableElement.updateOptions({ fastScrollSensitivity: options.fastScrollSensitivity });
+		}
 	}
 
 	triggerScrollFromMouseWheelEvent(browserEvent: IMouseWheelEvent) {
 		this.scrollableElement.triggerScrollFromMouseWheelEvent(browserEvent);
 	}
 
-	updateElementHeight(index: number, size: number, anchorIndex: number | null): void {
+	updateElementHeight(index: number, size: number | undefined, anchorIndex: number | null): void {
 		if (index < 0 || index >= this.items.length) {
 			return;
 		}
 
-		if (this.items[index].size === size) {
+		const originalSize = this.items[index].size;
+
+		if (typeof size === 'undefined') {
+			if (!this.supportDynamicHeights) {
+				console.warn('Dynamic heights not supported');
+				return;
+			}
+
+			this.items[index].lastDynamicHeightWidth = undefined;
+			size = originalSize + this.probeDynamicHeight(index);
+		}
+
+		if (originalSize === size) {
 			return;
 		}
 
@@ -392,12 +433,12 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 
 		if (index < lastRenderRange.start) {
 			// do not scroll the viewport if resized element is out of viewport
-			heightDiff = size - this.items[index].size;
+			heightDiff = size - originalSize;
 		} else {
 			if (anchorIndex !== null && anchorIndex > index && anchorIndex <= lastRenderRange.end) {
 				// anchor in viewport
-				// resized elemnet in viewport and above the anchor
-				heightDiff = size - this.items[index].size;
+				// resized element in viewport and above the anchor
+				heightDiff = size - originalSize;
 			} else {
 				heightDiff = 0;
 			}
@@ -438,9 +479,10 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 
 		// try to reuse rows, avoid removing them from DOM
 		const rowsToDispose = new Map<string, IRow[]>();
-		for (let i = removeRange.start; i < removeRange.end; i++) {
+		for (let i = removeRange.end - 1; i >= removeRange.start; i--) {
 			const item = this.items[i];
 			item.dragStartDisposable.dispose();
+			item.checkedDisposable.dispose();
 
 			if (item.row) {
 				let rows = rowsToDispose.get(item.templateId);
@@ -477,7 +519,8 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 			row: null,
 			uri: undefined,
 			dropTarget: false,
-			dragStartDisposable: Disposable.None
+			dragStartDisposable: Disposable.None,
+			checkedDisposable: Disposable.None
 		}));
 
 		let deleted: IItem<T>[];
@@ -745,8 +788,13 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 		item.row.domNode.setAttribute('role', role);
 
 		const checked = this.accessibilityProvider.isChecked(item.element);
-		if (typeof checked !== 'undefined') {
-			item.row.domNode.setAttribute('aria-checked', String(!!checked));
+
+		if (typeof checked === 'boolean') {
+			item.row!.domNode.setAttribute('aria-checked', String(!!checked));
+		} else if (checked) {
+			const update = (checked: boolean) => item.row!.domNode.setAttribute('aria-checked', String(!!checked));
+			update(checked.value);
+			item.checkedDisposable = checked.onDidChange(update);
 		}
 
 		if (!item.row.domNode.parentElement) {
@@ -816,6 +864,7 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 
 		item.row!.domNode.setAttribute('data-index', `${index}`);
 		item.row!.domNode.setAttribute('data-last-element', index === this.length - 1 ? 'true' : 'false');
+		item.row!.domNode.setAttribute('data-parity', index % 2 === 0 ? 'even' : 'odd');
 		item.row!.domNode.setAttribute('aria-setsize', String(this.accessibilityProvider.getSetSize(item.element, index, this.length)));
 		item.row!.domNode.setAttribute('aria-posinset', String(this.accessibilityProvider.getPosInSet(item.element, index)));
 		item.row!.domNode.setAttribute('id', this.getElementDomId(index));
@@ -826,6 +875,7 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 	private removeItemFromDOM(index: number): void {
 		const item = this.items[index];
 		item.dragStartDisposable.dispose();
+		item.checkedDisposable.dispose();
 
 		if (item.row) {
 			const renderer = this.renderers.get(item.templateId);
@@ -959,7 +1009,7 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 		const elements = this.dnd.getDragElements(element);
 
 		event.dataTransfer.effectAllowed = 'copyMove';
-		event.dataTransfer.setData(DataTransfers.RESOURCES, JSON.stringify([uri]));
+		event.dataTransfer.setData(DataTransfers.TEXT, uri);
 
 		if (event.dataTransfer.setDragImage) {
 			let label: string | undefined;
@@ -1084,9 +1134,12 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 		return true;
 	}
 
-	private onDragLeave(): void {
+	private onDragLeave(event: IListDragEvent<T>): void {
 		this.onDragLeaveTimeout.dispose();
 		this.onDragLeaveTimeout = disposableTimeout(() => this.clearDragOverFeedback(), 100);
+		if (this.currentDragData) {
+			this.dnd.onDragLeave?.(this.currentDragData, event.element, event.index, event.browserEvent);
+		}
 	}
 
 	private onDrop(event: IListDragEvent<T>): void {
@@ -1289,6 +1342,16 @@ export class ListView<T> implements ISpliceable<T>, IDisposable {
 
 	private probeDynamicHeight(index: number): number {
 		const item = this.items[index];
+
+		if (!!this.virtualDelegate.getDynamicHeight) {
+			const newSize = this.virtualDelegate.getDynamicHeight(item.element);
+			if (newSize !== null) {
+				const size = item.size;
+				item.size = newSize;
+				item.lastDynamicHeightWidth = this.renderWidth;
+				return newSize - size;
+			}
+		}
 
 		if (!item.hasDynamicHeight || item.lastDynamicHeightWidth === this.renderWidth) {
 			return 0;

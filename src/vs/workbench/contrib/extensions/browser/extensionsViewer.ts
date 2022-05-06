@@ -22,11 +22,12 @@ import { CancellationToken } from 'vs/base/common/cancellation';
 import { isNonEmptyArray } from 'vs/base/common/arrays';
 import { IColorMapping } from 'vs/platform/theme/common/styler';
 import { Delegate, Renderer } from 'vs/workbench/contrib/extensions/browser/extensionsList';
-import { listFocusForeground, listFocusBackground } from 'vs/platform/theme/common/colorRegistry';
+import { listFocusForeground, listFocusBackground, foreground, editorBackground } from 'vs/platform/theme/common/colorRegistry';
 import { StandardKeyboardEvent } from 'vs/base/browser/keyboardEvent';
 import { StandardMouseEvent } from 'vs/base/browser/mouseEvent';
 import { KeyCode } from 'vs/base/common/keyCodes';
 import { IListAccessibilityProvider } from 'vs/base/browser/ui/list/listWidget';
+import { HoverPosition } from 'vs/base/browser/ui/hover/hoverWidget';
 
 export class ExtensionsGridView extends Disposable {
 
@@ -42,7 +43,7 @@ export class ExtensionsGridView extends Disposable {
 	) {
 		super();
 		this.element = dom.append(parent, dom.$('.extensions-grid-view'));
-		this.renderer = this.instantiationService.createInstance(Renderer, { onFocus: Event.None, onBlur: Event.None });
+		this.renderer = this.instantiationService.createInstance(Renderer, { onFocus: Event.None, onBlur: Event.None }, { hoverOptions: { position() { return HoverPosition.BELOW; } } });
 		this.delegate = delegate;
 		this.disposableStore = this._register(new DisposableStore());
 	}
@@ -333,8 +334,8 @@ export async function getExtensions(extensions: string[], extensionsWorkbenchSer
 		}
 	}
 	if (toQuery.length) {
-		const galleryResult = await extensionsWorkbenchService.queryGallery({ names: toQuery, pageSize: toQuery.length }, CancellationToken.None);
-		result.push(...galleryResult.firstPage);
+		const galleryResult = await extensionsWorkbenchService.getExtensions(toQuery.map(id => ({ id })), CancellationToken.None);
+		result.push(...galleryResult);
 	}
 	return result;
 }
@@ -347,5 +348,13 @@ registerThemingParticipant((theme: IColorTheme, collector: ICssStyleCollector) =
 	const focusForeground = theme.getColor(listFocusForeground);
 	if (focusForeground) {
 		collector.addRule(`.extensions-grid-view .extension-container:focus { color: ${focusForeground}; }`);
+	}
+	const foregroundColor = theme.getColor(foreground);
+	const editorBackgroundColor = theme.getColor(editorBackground);
+	if (foregroundColor && editorBackgroundColor) {
+		const authorForeground = foregroundColor.transparent(.9).makeOpaque(editorBackgroundColor);
+		collector.addRule(`.extensions-grid-view .extension-container:not(.disabled) .author { color: ${authorForeground}; }`);
+		const disabledExtensionForeground = foregroundColor.transparent(.5).makeOpaque(editorBackgroundColor);
+		collector.addRule(`.extensions-grid-view .extension-container.disabled { color: ${disabledExtensionForeground}; }`);
 	}
 });

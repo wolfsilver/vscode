@@ -5,10 +5,10 @@
 
 import * as assert from 'assert';
 import * as async from 'vs/base/common/async';
-import { isPromiseCanceledError } from 'vs/base/common/errors';
-import { URI } from 'vs/base/common/uri';
 import { CancellationToken, CancellationTokenSource } from 'vs/base/common/cancellation';
+import { isCancellationError } from 'vs/base/common/errors';
 import { Event } from 'vs/base/common/event';
+import { URI } from 'vs/base/common/uri';
 
 suite('Async', () => {
 
@@ -21,7 +21,7 @@ suite('Async', () => {
 			});
 			let result = promise.then(_ => assert.ok(false), err => {
 				assert.strictEqual(canceled, 1);
-				assert.ok(isPromiseCanceledError(err));
+				assert.ok(isCancellationError(err));
 			});
 			promise.cancel();
 			promise.cancel(); // cancel only once
@@ -36,7 +36,7 @@ suite('Async', () => {
 			});
 			let result = promise.then(_ => assert.ok(false), err => {
 				assert.strictEqual(canceled, 1);
-				assert.ok(isPromiseCanceledError(err));
+				assert.ok(isCancellationError(err));
 			});
 			promise.cancel();
 			return result;
@@ -181,6 +181,31 @@ suite('Async', () => {
 			});
 		});
 
+		test('microtask delay simple', () => {
+			let count = 0;
+			let factory = () => {
+				return Promise.resolve(++count);
+			};
+
+			let delayer = new async.Delayer(async.MicrotaskDelay);
+			let promises: Promise<any>[] = [];
+
+			assert(!delayer.isTriggered());
+
+			promises.push(delayer.trigger(factory).then((result) => { assert.strictEqual(result, 1); assert(!delayer.isTriggered()); }));
+			assert(delayer.isTriggered());
+
+			promises.push(delayer.trigger(factory).then((result) => { assert.strictEqual(result, 1); assert(!delayer.isTriggered()); }));
+			assert(delayer.isTriggered());
+
+			promises.push(delayer.trigger(factory).then((result) => { assert.strictEqual(result, 1); assert(!delayer.isTriggered()); }));
+			assert(delayer.isTriggered());
+
+			return Promise.all(promises).then(() => {
+				assert(!delayer.isTriggered());
+			});
+		});
+
 		suite('ThrottledDelayer', () => {
 			test('promise should resolve if disposed', async () => {
 				const throttledDelayer = new async.ThrottledDelayer<void>(100);
@@ -203,6 +228,29 @@ suite('Async', () => {
 			};
 
 			let delayer = new async.Delayer(0);
+
+			assert(!delayer.isTriggered());
+
+			const p = delayer.trigger(factory).then(() => {
+				assert(false);
+			}, () => {
+				assert(true, 'yes, it was cancelled');
+			});
+
+			assert(delayer.isTriggered());
+			delayer.cancel();
+			assert(!delayer.isTriggered());
+
+			return p;
+		});
+
+		test('simple cancel microtask', function () {
+			let count = 0;
+			let factory = () => {
+				return Promise.resolve(++count);
+			};
+
+			let delayer = new async.Delayer(async.MicrotaskDelay);
 
 			assert(!delayer.isTriggered());
 
@@ -511,11 +559,11 @@ suite('Async', () => {
 			});
 		});
 
-		test('events', function () {
+		test('events', async function () {
 			let queue = new async.Queue();
 
-			let finished = false;
-			const onFinished = Event.toPromise(queue.onFinished);
+			let drained = false;
+			const onDrained = Event.toPromise(queue.onDrained).then(() => drained = true);
 
 			let res: number[] = [];
 
@@ -528,38 +576,61 @@ suite('Async', () => {
 			queue.queue(f3);
 
 			q1.then(() => {
-				assert.ok(!finished);
+				assert.ok(!drained);
 				q2.then(() => {
-					assert.ok(!finished);
+					assert.ok(!drained);
 				});
 			});
 
-			return onFinished;
+			await onDrained;
+			assert.ok(drained);
 		});
 	});
 
 	suite('ResourceQueue', () => {
-		test('simple', function () {
+		test('simple', async function () {
 			let queue = new async.ResourceQueue();
+
+			await queue.whenDrained(); // returns immediately since empty
 
 			const r1Queue = queue.queueFor(URI.file('/some/path'));
 
-			r1Queue.onFinished(() => console.log('DONE'));
+			await queue.whenDrained(); // returns immediately since empty
 
 			const r2Queue = queue.queueFor(URI.file('/some/other/path'));
+
+			await queue.whenDrained(); // returns immediately since empty
 
 			assert.ok(r1Queue);
 			assert.ok(r2Queue);
 			assert.strictEqual(r1Queue, queue.queueFor(URI.file('/some/path'))); // same queue returned
 
-			let syncPromiseFactory = () => Promise.resolve(undefined);
+			// schedule some work
+			const w1 = new async.DeferredPromise<void>();
+			r1Queue.queue(() => w1.p);
 
-			r1Queue.queue(syncPromiseFactory);
+			let drained = false;
+			queue.whenDrained().then(() => drained = true);
+			assert.strictEqual(drained, false);
+			await w1.complete();
+			await async.timeout(0);
+			assert.strictEqual(drained, true);
 
-			return new Promise<void>(c => setTimeout(() => c(), 0)).then(() => {
-				const r1Queue2 = queue.queueFor(URI.file('/some/path'));
-				assert.notStrictEqual(r1Queue, r1Queue2); // previous one got disposed after finishing
-			});
+			const r1Queue2 = queue.queueFor(URI.file('/some/path'));
+			assert.notStrictEqual(r1Queue, r1Queue2); // previous one got disposed after finishing
+
+			// schedule some work
+			const w2 = new async.DeferredPromise<void>();
+			const w3 = new async.DeferredPromise<void>();
+			r1Queue.queue(() => w2.p);
+			r2Queue.queue(() => w3.p);
+
+			drained = false;
+			queue.whenDrained().then(() => drained = true);
+
+			queue.dispose();
+			await async.timeout(0);
+			assert.strictEqual(drained, true);
 		});
 	});
 
@@ -740,16 +811,14 @@ suite('Async', () => {
 	});
 
 	test('IntervalCounter', async () => {
-		const counter = new async.IntervalCounter(10);
+		let now = 0;
+		const counter = new async.IntervalCounter(5, () => now);
+
 		assert.strictEqual(counter.increment(), 1);
 		assert.strictEqual(counter.increment(), 2);
 		assert.strictEqual(counter.increment(), 3);
 
-		const now = Date.now();
-		await async.timeout(20);
-		if (Date.now() - now < 11) {
-			return; // Firefox in Playwright seems to have a flaky timeout implementation (https://github.com/microsoft/vscode/issues/114028)
-		}
+		now = 10;
 
 		assert.strictEqual(counter.increment(), 1);
 		assert.strictEqual(counter.increment(), 2);
@@ -844,102 +913,6 @@ suite('Async', () => {
 		});
 	});
 
-	suite('Promises.allSettled', () => {
-		test('resolves', async () => {
-			const p1 = Promise.resolve(1);
-			const p2 = async.timeout(1).then(() => 2);
-			const p3 = async.timeout(2).then(() => 3);
-
-			const result = await async.Promises.allSettled<number>([p1, p2, p3]);
-
-			assert.strictEqual(result.length, 3);
-			assert.deepStrictEqual(result[0], { status: 'fulfilled', value: 1 });
-			assert.deepStrictEqual(result[1], { status: 'fulfilled', value: 2 });
-			assert.deepStrictEqual(result[2], { status: 'fulfilled', value: 3 });
-		});
-
-		test('resolves in order', async () => {
-			const p1 = async.timeout(2).then(() => 1);
-			const p2 = async.timeout(1).then(() => 2);
-			const p3 = Promise.resolve(3);
-
-			const result = await async.Promises.allSettled<number>([p1, p2, p3]);
-
-			assert.strictEqual(result.length, 3);
-			assert.deepStrictEqual(result[0], { status: 'fulfilled', value: 1 });
-			assert.deepStrictEqual(result[1], { status: 'fulfilled', value: 2 });
-			assert.deepStrictEqual(result[2], { status: 'fulfilled', value: 3 });
-		});
-
-		test('rejects', async () => {
-			const p1 = Promise.reject(1);
-
-			const p2Error = new Error('2');
-			const p2 = async.timeout(1).then(() => { throw p2Error; });
-
-			const p3Error = new Error('3');
-			const p3 = async.timeout(2).then(() => { throw p3Error; });
-
-			const result = await async.Promises.allSettled<number>([p1, p2, p3]);
-
-			assert.strictEqual(result.length, 3);
-			assert.deepStrictEqual(result[0], { status: 'rejected', reason: 1 });
-			assert.deepStrictEqual(result[1], { status: 'rejected', reason: p2Error });
-			assert.deepStrictEqual(result[2], { status: 'rejected', reason: p3Error });
-		});
-
-		test('rejects in order', async () => {
-			const p1Error = new Error('1');
-			const p1 = async.timeout(2).then(() => { throw p1Error; });
-
-			const p2Error = new Error('2');
-			const p2 = async.timeout(1).then(() => { throw p2Error; });
-
-			const p3 = Promise.reject(3);
-
-			const result = await async.Promises.allSettled<number>([p1, p2, p3]);
-
-			assert.strictEqual(result.length, 3);
-			assert.deepStrictEqual(result[0], { status: 'rejected', reason: p1Error });
-			assert.deepStrictEqual(result[1], { status: 'rejected', reason: p2Error });
-			assert.deepStrictEqual(result[2], { status: 'rejected', reason: 3 });
-		});
-
-		test('resolves & rejects', async () => {
-			const p1 = Promise.resolve(1);
-			const p2Error = new Error('2');
-			const p2 = async.timeout(1).then(() => { throw p2Error; });
-			const p3 = async.timeout(2).then(() => 3);
-
-			const result = await async.Promises.allSettled<number>([p1, p2, p3]);
-
-			assert.strictEqual(result.length, 3);
-			assert.deepStrictEqual(result[0], { status: 'fulfilled', value: 1 });
-			assert.deepStrictEqual(result[1], { status: 'rejected', reason: p2Error });
-			assert.deepStrictEqual(result[2], { status: 'fulfilled', value: 3 });
-		});
-
-		test('resolves & rejects in order', async () => {
-			const p1Error = new Error('2');
-			const p1 = async.timeout(1).then(() => { throw p1Error; });
-			const p2 = async.timeout(2).then(() => 2);
-			const p3 = Promise.resolve(3);
-
-			const result = await async.Promises.allSettled<number>([p1, p2, p3]);
-
-			assert.strictEqual(result.length, 3);
-			assert.deepStrictEqual(result[0], { status: 'rejected', reason: p1Error });
-			assert.deepStrictEqual(result[1], { status: 'fulfilled', value: 2 });
-			assert.deepStrictEqual(result[2], { status: 'fulfilled', value: 3 });
-		});
-
-		test('can empty', async () => {
-			const result = await async.Promises.allSettled<number>([]);
-
-			assert.strictEqual(result.length, 0);
-		});
-	});
-
 	suite('Promises.settled', () => {
 		test('resolves', async () => {
 			const p1 = Promise.resolve(1);
@@ -1024,6 +997,245 @@ suite('Async', () => {
 			assert.strictEqual(error, p2Error);
 			assert.ok(p2Handled);
 			assert.ok(p3Handled);
+		});
+	});
+
+	suite('Promises.withAsyncBody', () => {
+		test('basics', async () => {
+
+			const p1 = async.Promises.withAsyncBody(async (resolve, reject) => {
+				resolve(1);
+			});
+
+			const p2 = async.Promises.withAsyncBody(async (resolve, reject) => {
+				reject(new Error('error'));
+			});
+
+			const p3 = async.Promises.withAsyncBody(async (resolve, reject) => {
+				throw new Error('error');
+			});
+
+			const r1 = await p1;
+			assert.strictEqual(r1, 1);
+
+			let e2: Error | undefined = undefined;
+			try {
+				await p2;
+			} catch (error) {
+				e2 = error;
+			}
+
+			assert.ok(e2 instanceof Error);
+
+			let e3: Error | undefined = undefined;
+			try {
+				await p3;
+			} catch (error) {
+				e3 = error;
+			}
+
+			assert.ok(e3 instanceof Error);
+		});
+	});
+
+	suite('ThrottledWorker', () => {
+
+		function assertArrayEquals(actual: unknown[], expected: unknown[]) {
+			assert.strictEqual(actual.length, expected.length);
+
+			for (let i = 0; i < actual.length; i++) {
+				assert.strictEqual(actual[i], expected[i]);
+			}
+		}
+
+		test('basics', async () => {
+			let handled: number[] = [];
+
+			let handledCallback: Function;
+			let handledPromise = new Promise(resolve => handledCallback = resolve);
+			let handledCounterToResolve = 1;
+			let currentHandledCounter = 0;
+
+			const handler = (units: readonly number[]) => {
+				handled.push(...units);
+
+				currentHandledCounter++;
+				if (currentHandledCounter === handledCounterToResolve) {
+					handledCallback();
+
+					handledPromise = new Promise(resolve => handledCallback = resolve);
+					currentHandledCounter = 0;
+				}
+			};
+
+			const worker = new async.ThrottledWorker<number>({
+				maxWorkChunkSize: 5,
+				maxBufferedWork: undefined,
+				throttleDelay: 1
+			}, handler);
+
+			// Work less than chunk size
+
+			let worked = worker.work([1, 2, 3]);
+
+			assertArrayEquals(handled, [1, 2, 3]);
+			assert.strictEqual(worker.pending, 0);
+			assert.strictEqual(worked, true);
+
+			worker.work([4, 5]);
+			worked = worker.work([6]);
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5, 6]);
+			assert.strictEqual(worker.pending, 0);
+			assert.strictEqual(worked, true);
+
+			// Work more than chunk size (variant 1)
+
+			handled = [];
+			handledCounterToResolve = 2;
+
+			worked = worker.work([1, 2, 3, 4, 5, 6, 7]);
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5]);
+			assert.strictEqual(worker.pending, 2);
+			assert.strictEqual(worked, true);
+
+			await handledPromise;
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5, 6, 7]);
+
+			handled = [];
+			handledCounterToResolve = 4;
+
+			worked = worker.work([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5]);
+			assert.strictEqual(worker.pending, 14);
+			assert.strictEqual(worked, true);
+
+			await handledPromise;
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+
+			// Work more than chunk size (variant 2)
+
+			handled = [];
+			handledCounterToResolve = 2;
+
+			worked = worker.work([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5]);
+			assert.strictEqual(worker.pending, 5);
+			assert.strictEqual(worked, true);
+
+			await handledPromise;
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+			// Work more while throttled (variant 1)
+
+			handled = [];
+			handledCounterToResolve = 3;
+
+			worked = worker.work([1, 2, 3, 4, 5, 6, 7]);
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5]);
+			assert.strictEqual(worker.pending, 2);
+			assert.strictEqual(worked, true);
+
+			worker.work([8]);
+			worked = worker.work([9, 10, 11]);
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5]);
+			assert.strictEqual(worker.pending, 6);
+			assert.strictEqual(worked, true);
+
+			await handledPromise;
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+			assert.strictEqual(worker.pending, 0);
+
+			// Work more while throttled (variant 2)
+
+			handled = [];
+			handledCounterToResolve = 2;
+
+			worked = worker.work([1, 2, 3, 4, 5, 6, 7]);
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5]);
+			assert.strictEqual(worked, true);
+
+			worker.work([8]);
+			worked = worker.work([9, 10]);
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5]);
+			assert.strictEqual(worked, true);
+
+			await handledPromise;
+
+			assertArrayEquals(handled, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+		});
+
+		test('do not accept too much work', async () => {
+			let handled: number[] = [];
+			const handler = (units: readonly number[]) => handled.push(...units);
+
+			const worker = new async.ThrottledWorker<number>({
+				maxWorkChunkSize: 5,
+				maxBufferedWork: 5,
+				throttleDelay: 1
+			}, handler);
+
+			let worked = worker.work([1, 2, 3]);
+			assert.strictEqual(worked, true);
+
+			worked = worker.work([1, 2, 3, 4, 5, 6]);
+			assert.strictEqual(worked, true);
+			assert.strictEqual(worker.pending, 1);
+
+			worked = worker.work([7]);
+			assert.strictEqual(worked, true);
+			assert.strictEqual(worker.pending, 2);
+
+			worked = worker.work([8, 9, 10, 11]);
+			assert.strictEqual(worked, false);
+			assert.strictEqual(worker.pending, 2);
+		});
+
+		test('do not accept too much work (account for max chunk size', async () => {
+			let handled: number[] = [];
+			const handler = (units: readonly number[]) => handled.push(...units);
+
+			const worker = new async.ThrottledWorker<number>({
+				maxWorkChunkSize: 5,
+				maxBufferedWork: 5,
+				throttleDelay: 1
+			}, handler);
+
+			let worked = worker.work([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+			assert.strictEqual(worked, false);
+			assert.strictEqual(worker.pending, 0);
+
+			worked = worker.work([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+			assert.strictEqual(worked, true);
+			assert.strictEqual(worker.pending, 5);
+		});
+
+		test('disposed', async () => {
+			let handled: number[] = [];
+			const handler = (units: readonly number[]) => handled.push(...units);
+
+			const worker = new async.ThrottledWorker<number>({
+				maxWorkChunkSize: 5,
+				maxBufferedWork: undefined,
+				throttleDelay: 1
+			}, handler);
+			worker.dispose();
+			const worked = worker.work([1, 2, 3]);
+
+			assertArrayEquals(handled, []);
+			assert.strictEqual(worker.pending, 0);
+			assert.strictEqual(worked, false);
 		});
 	});
 });

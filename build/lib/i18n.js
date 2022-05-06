@@ -15,7 +15,7 @@ const https = require("https");
 const gulp = require("gulp");
 const fancyLog = require("fancy-log");
 const ansiColors = require("ansi-colors");
-const iconv = require("iconv-lite-umd");
+const iconv = require("@vscode/iconv-lite-umd");
 const NUMBER_OF_CONCURRENT_DOWNLOADS = 4;
 function log(message, ...rest) {
     fancyLog(ansiColors.green('[i18n]'), message, ...rest);
@@ -289,13 +289,13 @@ function sortLanguages(languages) {
     });
 }
 function stripComments(content) {
-    /**
-    * First capturing group matches double quoted string
-    * Second matches single quotes string
-    * Third matches block comments
-    * Fourth matches line comments
-    */
-    const regexp = /("(?:[^\\\"]*(?:\\.)?)*")|('(?:[^\\\']*(?:\\.)?)*')|(\/\*(?:\r?\n|.)*?\*\/)|(\/{2,}.*?(?:(?:\r?\n)|$))/g;
+    // Copied from stripComments.js
+    //
+    // First group matches a double quoted string
+    // Second group matches a single quoted string
+    // Third group matches a multi line comment
+    // Forth group matches a single line comment
+    const regexp = /("[^"\\]*(?:\\.[^"\\]*)*")|('[^'\\]*(?:\\.[^'\\]*)*')|(\/\*[^\/\*]*(?:(?:\*|\/)[^\/\*]*)*?\*\/)|(\/{2,}.*?(?:(?:\r?\n)|$))/g;
     let result = content.replace(regexp, (match, _m1, _m2, m3, m4) => {
         // Only one of m1, m2, m3, m4 matches
         if (m3) {
@@ -303,9 +303,10 @@ function stripComments(content) {
             return '';
         }
         else if (m4) {
-            // A line comment. If it ends in \r?\n then keep it.
-            let length = m4.length;
-            if (length > 2 && m4[length - 1] === '\n') {
+            // Since m4 is a single line comment is is at least of length 2 (e.g. //)
+            // If it ends in \r?\n then keep it.
+            const length = m4.length;
+            if (m4[length - 1] === '\n') {
                 return m4[length - 2] === '\r' ? '\r\n' : '\n';
             }
             else {
@@ -466,7 +467,7 @@ function processCoreBundleFormat(fileHeader, languages, json, emitter) {
     });
 }
 function processNlsFiles(opts) {
-    return event_stream_1.through(function (file) {
+    return (0, event_stream_1.through)(function (file) {
         let fileName = path.basename(file.path);
         if (fileName === 'nls.metadata.json') {
             let json = null;
@@ -518,7 +519,7 @@ function getResource(sourceFile) {
 }
 exports.getResource = getResource;
 function createXlfFilesForCoreBundle() {
-    return event_stream_1.through(function (file) {
+    return (0, event_stream_1.through)(function (file) {
         const basename = path.basename(file.path);
         if (basename === 'nls.metadata.json') {
             if (file.isBuffer()) {
@@ -569,7 +570,7 @@ function createXlfFilesForExtensions() {
     let counter = 0;
     let folderStreamEnded = false;
     let folderStreamEndEmitted = false;
-    return event_stream_1.through(function (extensionFolder) {
+    return (0, event_stream_1.through)(function (extensionFolder) {
         const folderStream = this;
         const stat = fs.statSync(extensionFolder.path);
         if (!stat.isDirectory()) {
@@ -587,7 +588,7 @@ function createXlfFilesForExtensions() {
             }
             return _xlf;
         }
-        gulp.src([`.build/extensions/${extensionName}/package.nls.json`, `.build/extensions/${extensionName}/**/nls.metadata.json`], { allowEmpty: true }).pipe(event_stream_1.through(function (file) {
+        gulp.src([`.build/extensions/${extensionName}/package.nls.json`, `.build/extensions/${extensionName}/**/nls.metadata.json`], { allowEmpty: true }).pipe((0, event_stream_1.through)(function (file) {
             if (file.isBuffer()) {
                 const buffer = file.contents;
                 const basename = path.basename(file.path);
@@ -646,7 +647,7 @@ function createXlfFilesForExtensions() {
 }
 exports.createXlfFilesForExtensions = createXlfFilesForExtensions;
 function createXlfFilesForIsl() {
-    return event_stream_1.through(function (file) {
+    return (0, event_stream_1.through)(function (file) {
         let projectName, resourceFile;
         if (path.basename(file.path) === 'messages.en.isl') {
             projectName = setupProject;
@@ -699,7 +700,7 @@ exports.createXlfFilesForIsl = createXlfFilesForIsl;
 function pushXlfFiles(apiHostname, username, password) {
     let tryGetPromises = [];
     let updateCreatePromises = [];
-    return event_stream_1.through(function (file) {
+    return (0, event_stream_1.through)(function (file) {
         const project = path.dirname(file.relative);
         const fileName = path.basename(file.path);
         const slug = fileName.substr(0, fileName.length - '.xlf'.length);
@@ -761,7 +762,7 @@ function getAllResources(project, apiHostname, username, password) {
 function findObsoleteResources(apiHostname, username, password) {
     let resourcesByProject = Object.create(null);
     resourcesByProject[extensionsProject] = [].concat(exports.externalExtensionsWithTranslations); // clone
-    return event_stream_1.through(function (file) {
+    return (0, event_stream_1.through)(function (file) {
         const project = path.dirname(file.relative);
         const fileName = path.basename(file.path);
         const slug = fileName.substr(0, fileName.length - '.xlf'.length);
@@ -913,7 +914,7 @@ function pullXlfFiles(apiHostname, username, password, language, resources) {
     const credentials = `${username}:${password}`;
     let expectedTranslationsCount = resources.length;
     let translationsRetrieved = 0, called = false;
-    return event_stream_1.readable(function (_count, callback) {
+    return (0, event_stream_1.readable)(function (_count, callback) {
         // Mark end of stream when all resources were retrieved
         if (translationsRetrieved === expectedTranslationsCount) {
             return this.emit('end');
@@ -971,7 +972,7 @@ function retrieveResource(language, resource, apiHostname, credentials) {
 }
 function prepareI18nFiles() {
     let parsePromises = [];
-    return event_stream_1.through(function (xlf) {
+    return (0, event_stream_1.through)(function (xlf) {
         let stream = this;
         let parsePromise = XLF.parse(xlf.contents.toString());
         parsePromises.push(parsePromise);
@@ -1015,7 +1016,7 @@ function prepareI18nPackFiles(externalExtensions, resultingTranslationPaths, pse
     let mainPack = { version: i18nPackVersion, contents: {} };
     let extensionsPacks = {};
     let errors = [];
-    return event_stream_1.through(function (xlf) {
+    return (0, event_stream_1.through)(function (xlf) {
         let project = path.basename(path.dirname(path.dirname(xlf.relative)));
         let resource = path.basename(xlf.relative, '.xlf');
         let contents = xlf.contents.toString();
@@ -1077,7 +1078,7 @@ function prepareI18nPackFiles(externalExtensions, resultingTranslationPaths, pse
 exports.prepareI18nPackFiles = prepareI18nPackFiles;
 function prepareIslFiles(language, innoSetupConfig) {
     let parsePromises = [];
-    return event_stream_1.through(function (xlf) {
+    return (0, event_stream_1.through)(function (xlf) {
         let stream = this;
         let parsePromise = XLF.parse(xlf.contents.toString());
         parsePromises.push(parsePromise);

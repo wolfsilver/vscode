@@ -7,12 +7,13 @@ import { findFirstInSorted } from 'vs/base/common/arrays';
 import { RunOnceScheduler } from 'vs/base/common/async';
 import { Emitter, Event } from 'vs/base/common/event';
 import { once } from 'vs/base/common/functional';
+import { Iterable } from 'vs/base/common/iterator';
 import { generateUuid } from 'vs/base/common/uuid';
 import { IContextKey, IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
 import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { TestResultState } from 'vs/workbench/api/common/extHostTypes';
-import { ExtensionRunTestsRequest, RunTestsRequest, TestResultItem } from 'vs/workbench/contrib/testing/common/testCollection';
+import { ExtensionRunTestsRequest, ITestRunProfile, ResolvedTestRunRequest, TestResultItem, TestResultState } from 'vs/workbench/contrib/testing/common/testTypes';
 import { TestingContextKeys } from 'vs/workbench/contrib/testing/common/testingContextKeys';
+import { ITestProfileService } from 'vs/workbench/contrib/testing/common/testProfileService';
 import { ITestResult, LiveTestResult, TestResultItemChange, TestResultItemChangeReason } from 'vs/workbench/contrib/testing/common/testResult';
 import { ITestResultStorage, RETAIN_MAX_RESULTS } from 'vs/workbench/contrib/testing/common/testResultStorage';
 
@@ -21,6 +22,14 @@ export type ResultChangeEvent =
 	| { started: LiveTestResult }
 	| { inserted: ITestResult }
 	| { removed: ITestResult[] };
+
+export const allChangedResults = (evt: ResultChangeEvent): Iterable<ITestResult> => 'completed' in evt
+	? Iterable.single(evt.completed)
+	: 'started' in evt
+		? Iterable.single(evt.started)
+		: 'inserted' in evt
+			? Iterable.single(evt.inserted)
+			: evt.removed;
 
 export interface ITestResultService {
 	readonly _serviceBrand: undefined;
@@ -47,7 +56,7 @@ export interface ITestResultService {
 	/**
 	 * Creates a new, live test result.
 	 */
-	createLiveResult(req: RunTestsRequest | ExtensionRunTestsRequest): LiveTestResult;
+	createLiveResult(req: ResolvedTestRunRequest | ExtensionRunTestsRequest): LiveTestResult;
 
 	/**
 	 * Adds a new test result to the collection.
@@ -107,6 +116,7 @@ export class TestResultService implements ITestResultService {
 	constructor(
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@ITestResultStorage private readonly storage: ITestResultStorage,
+		@ITestProfileService private readonly testProfiles: ITestProfileService,
 	) {
 		this.isRunning = TestingContextKeys.isRunning.bindTo(contextKeyService);
 		this.hasAnyResults = TestingContextKeys.hasAnyResults.bindTo(contextKeyService);
@@ -129,13 +139,35 @@ export class TestResultService implements ITestResultService {
 	/**
 	 * @inheritdoc
 	 */
-	public createLiveResult(req: RunTestsRequest | ExtensionRunTestsRequest) {
-		if ('id' in req) {
-			return this.push(new LiveTestResult(req.id, this.storage.getOutputController(req.id), req));
-		} else {
+	public createLiveResult(req: ResolvedTestRunRequest | ExtensionRunTestsRequest) {
+		if ('targets' in req) {
 			const id = generateUuid();
-			return this.push(new LiveTestResult(id, this.storage.getOutputController(id), req));
+			return this.push(new LiveTestResult(id, this.storage.getOutputController(id), true, req));
 		}
+
+		let profile: ITestRunProfile | undefined;
+		if (req.profile) {
+			const profiles = this.testProfiles.getControllerProfiles(req.controllerId);
+			profile = profiles.find(c => c.profileId === req.profile!.id);
+		}
+
+		const resolved: ResolvedTestRunRequest = {
+			isUiTriggered: false,
+			targets: [],
+			exclude: req.exclude,
+			isAutoRun: false,
+		};
+
+		if (profile) {
+			resolved.targets.push({
+				profileGroup: profile.group,
+				profileId: profile.profileId,
+				controllerId: req.controllerId,
+				testIds: req.include,
+			});
+		}
+
+		return this.push(new LiveTestResult(req.id, this.storage.getOutputController(req.id), req.persist, resolved));
 	}
 
 	/**
@@ -203,7 +235,9 @@ export class TestResultService implements ITestResultService {
 
 		this._results = keep;
 		this.persistScheduler.schedule();
-		this.hasAnyResults.set(false);
+		if (keep.length === 0) {
+			this.hasAnyResults.set(false);
+		}
 		this.changeResultEmitter.fire({ removed });
 	}
 

@@ -10,19 +10,21 @@ import { IRelativePattern } from 'vs/base/common/glob';
 import { hash } from 'vs/base/common/hash';
 import { DisposableStore, IDisposable, toDisposable } from 'vs/base/common/lifecycle';
 import { ResourceMap } from 'vs/base/common/map';
+import { MarshalledId } from 'vs/base/common/marshallingIds';
 import { isFalsyOrWhitespace } from 'vs/base/common/strings';
 import { assertIsDefined } from 'vs/base/common/types';
 import { URI, UriComponents } from 'vs/base/common/uri';
 import { IExtensionDescription } from 'vs/platform/extensions/common/extensions';
 import { Cache } from 'vs/workbench/api/common/cache';
 import { ExtHostNotebookShape, IMainContext, IModelAddedData, INotebookCellStatusBarListDto, INotebookDocumentsAndEditorsDelta, INotebookDocumentShowOptions, INotebookEditorAddData, MainContext, MainThreadNotebookDocumentsShape, MainThreadNotebookEditorsShape, MainThreadNotebookShape, NotebookDataDto } from 'vs/workbench/api/common/extHost.protocol';
-import { CommandsConverter, ExtHostCommands } from 'vs/workbench/api/common/extHostCommands';
+import { ApiCommand, ApiCommandArgument, ApiCommandResult, CommandsConverter, ExtHostCommands } from 'vs/workbench/api/common/extHostCommands';
 import { ExtHostDocuments } from 'vs/workbench/api/common/extHostDocuments';
 import { ExtHostDocumentsAndEditors } from 'vs/workbench/api/common/extHostDocumentsAndEditors';
 import { IExtensionStoragePaths } from 'vs/workbench/api/common/extHostStoragePaths';
 import * as typeConverters from 'vs/workbench/api/common/extHostTypeConverters';
 import * as extHostTypes from 'vs/workbench/api/common/extHostTypes';
 import { INotebookExclusiveDocumentFilter, INotebookContributionData } from 'vs/workbench/contrib/notebook/common/notebookCommon';
+import { SerializableObjectWithBuffers } from 'vs/workbench/services/extensions/common/proxyIdentifier';
 import type * as vscode from 'vscode';
 import { ExtHostCell, ExtHostNotebookDocument } from './extHostNotebookDocument';
 import { ExtHostNotebookEditor } from './extHostNotebookEditor';
@@ -46,16 +48,8 @@ export class ExtHostNotebookController implements ExtHostNotebookShape {
 	private readonly _editors = new Map<string, ExtHostNotebookEditor>();
 	private readonly _commandsConverter: CommandsConverter;
 
-	private readonly _onDidChangeNotebookCells = new Emitter<vscode.NotebookCellsChangeEvent>();
-	readonly onDidChangeNotebookCells = this._onDidChangeNotebookCells.event;
-	private readonly _onDidChangeCellOutputs = new Emitter<vscode.NotebookCellOutputsChangeEvent>();
-	readonly onDidChangeCellOutputs = this._onDidChangeCellOutputs.event;
-	private readonly _onDidChangeCellMetadata = new Emitter<vscode.NotebookCellMetadataChangeEvent>();
-	readonly onDidChangeCellMetadata = this._onDidChangeCellMetadata.event;
 	private readonly _onDidChangeActiveNotebookEditor = new Emitter<vscode.NotebookEditor | undefined>();
 	readonly onDidChangeActiveNotebookEditor = this._onDidChangeActiveNotebookEditor.event;
-	private readonly _onDidChangeCellExecutionState = new Emitter<vscode.NotebookCellExecutionStateChangeEvent>();
-	readonly onDidChangeNotebookCellExecutionState = this._onDidChangeCellExecutionState.event;
 
 	private _activeNotebookEditor: ExtHostNotebookEditor | undefined;
 	get activeNotebookEditor(): vscode.NotebookEditor | undefined {
@@ -91,7 +85,7 @@ export class ExtHostNotebookController implements ExtHostNotebookShape {
 		commands.registerArgumentProcessor({
 			// Serialized INotebookCellActionContext
 			processArgument: (arg) => {
-				if (arg && arg.$mid === 12) {
+				if (arg && arg.$mid === MarshalledId.NotebookCellActionContext) {
 					const notebookUri = arg.notebookEditor?.notebookUri;
 					const cellHandle = arg.cell.handle;
 
@@ -104,6 +98,8 @@ export class ExtHostNotebookController implements ExtHostNotebookShape {
 				return arg;
 			}
 		});
+
+		ExtHostNotebookController._registerApiCommands(commands);
 	}
 
 	getEditorById(editorId: string): ExtHostNotebookEditor {
@@ -225,7 +221,7 @@ export class ExtHostNotebookController implements ExtHostNotebookShape {
 		});
 	}
 
-	async createNotebookDocument(options: { viewType: string, content?: vscode.NotebookData }): Promise<URI> {
+	async createNotebookDocument(options: { viewType: string; content?: vscode.NotebookData }): Promise<URI> {
 		const canonicalUri = await this._notebookDocumentsProxy.$tryCreateNotebook({
 			viewType: options.viewType,
 			content: options.content && typeConverters.NotebookData.from(options.content)
@@ -333,33 +329,33 @@ export class ExtHostNotebookController implements ExtHostNotebookShape {
 		});
 	}
 
-	async $dataToNotebook(handle: number, bytes: VSBuffer, token: CancellationToken): Promise<NotebookDataDto> {
+	async $dataToNotebook(handle: number, bytes: VSBuffer, token: CancellationToken): Promise<SerializableObjectWithBuffers<NotebookDataDto>> {
 		const serializer = this._notebookSerializer.get(handle);
 		if (!serializer) {
 			throw new Error('NO serializer found');
 		}
 		const data = await serializer.deserializeNotebook(bytes.buffer, token);
-		return typeConverters.NotebookData.from(data);
+		return new SerializableObjectWithBuffers(typeConverters.NotebookData.from(data));
 	}
 
-	async $notebookToData(handle: number, data: NotebookDataDto, token: CancellationToken): Promise<VSBuffer> {
+	async $notebookToData(handle: number, data: SerializableObjectWithBuffers<NotebookDataDto>, token: CancellationToken): Promise<VSBuffer> {
 		const serializer = this._notebookSerializer.get(handle);
 		if (!serializer) {
 			throw new Error('NO serializer found');
 		}
-		const bytes = await serializer.serializeNotebook(typeConverters.NotebookData.to(data), token);
+		const bytes = await serializer.serializeNotebook(typeConverters.NotebookData.to(data.value), token);
 		return VSBuffer.wrap(bytes);
 	}
 
 	// --- open, save, saveAs, backup
 
-	async $openNotebook(viewType: string, uri: UriComponents, backupId: string | undefined, untitledDocumentData: VSBuffer | undefined, token: CancellationToken): Promise<NotebookDataDto> {
+	async $openNotebook(viewType: string, uri: UriComponents, backupId: string | undefined, untitledDocumentData: VSBuffer | undefined, token: CancellationToken): Promise<SerializableObjectWithBuffers<NotebookDataDto>> {
 		const { provider } = this._getProviderData(viewType);
 		const data = await provider.openNotebook(URI.revive(uri), { backupId, untitledDocumentData: untitledDocumentData?.buffer }, token);
-		return {
+		return new SerializableObjectWithBuffers({
 			metadata: data.metadata ?? Object.create(null),
 			cells: data.cells.map(typeConverters.NotebookCellData.from),
-		};
+		});
 	}
 
 	async $saveNotebook(viewType: string, uri: UriComponents, token: CancellationToken): Promise<boolean> {
@@ -410,10 +406,10 @@ export class ExtHostNotebookController implements ExtHostNotebookShape {
 		this._editors.set(editorId, editor);
 	}
 
-	$acceptDocumentAndEditorsDelta(delta: INotebookDocumentsAndEditorsDelta): void {
+	$acceptDocumentAndEditorsDelta(delta: SerializableObjectWithBuffers<INotebookDocumentsAndEditorsDelta>): void {
 
-		if (delta.removedDocuments) {
-			for (const uri of delta.removedDocuments) {
+		if (delta.value.removedDocuments) {
+			for (const uri of delta.value.removedDocuments) {
 				const revivedUri = URI.revive(uri);
 				const document = this._documents.get(revivedUri);
 
@@ -432,36 +428,21 @@ export class ExtHostNotebookController implements ExtHostNotebookShape {
 			}
 		}
 
-		if (delta.addedDocuments) {
+		if (delta.value.addedDocuments) {
 
 			const addedCellDocuments: IModelAddedData[] = [];
 
-			for (const modelData of delta.addedDocuments) {
+			for (const modelData of delta.value.addedDocuments) {
 				const uri = URI.revive(modelData.uri);
 
 				if (this._documents.has(uri)) {
 					throw new Error(`adding EXISTING notebook ${uri} `);
 				}
-				const that = this;
 
 				const document = new ExtHostNotebookDocument(
 					this._notebookDocumentsProxy,
 					this._textDocumentsAndEditors,
 					this._textDocuments,
-					{
-						emitModelChange(event: vscode.NotebookCellsChangeEvent): void {
-							that._onDidChangeNotebookCells.fire(event);
-						},
-						emitCellOutputsChange(event: vscode.NotebookCellOutputsChangeEvent): void {
-							that._onDidChangeCellOutputs.fire(event);
-						},
-						emitCellMetadataChange(event: vscode.NotebookCellMetadataChangeEvent): void {
-							that._onDidChangeCellMetadata.fire(event);
-						},
-						emitCellExecutionStateChange(event: vscode.NotebookCellExecutionStateChangeEvent): void {
-							that._onDidChangeCellExecutionState.fire(event);
-						}
-					},
 					uri,
 					modelData
 				);
@@ -477,8 +458,8 @@ export class ExtHostNotebookController implements ExtHostNotebookShape {
 			}
 		}
 
-		if (delta.addedEditors) {
-			for (const editorModelData of delta.addedEditors) {
+		if (delta.value.addedEditors) {
+			for (const editorModelData of delta.value.addedEditors) {
 				if (this._editors.has(editorModelData.id)) {
 					return;
 				}
@@ -494,8 +475,8 @@ export class ExtHostNotebookController implements ExtHostNotebookShape {
 
 		const removedEditors: ExtHostNotebookEditor[] = [];
 
-		if (delta.removedEditors) {
-			for (const editorid of delta.removedEditors) {
+		if (delta.value.removedEditors) {
+			for (const editorid of delta.value.removedEditors) {
 				const editor = this._editors.get(editorid);
 
 				if (editor) {
@@ -510,8 +491,8 @@ export class ExtHostNotebookController implements ExtHostNotebookShape {
 			}
 		}
 
-		if (delta.visibleEditors) {
-			this._visibleNotebookEditors = delta.visibleEditors.map(id => this._editors.get(id)!).filter(editor => !!editor) as ExtHostNotebookEditor[];
+		if (delta.value.visibleEditors) {
+			this._visibleNotebookEditors = delta.value.visibleEditors.map(id => this._editors.get(id)!).filter(editor => !!editor) as ExtHostNotebookEditor[];
 			const visibleEditorsSet = new Set<string>();
 			this._visibleNotebookEditors.forEach(editor => visibleEditorsSet.add(editor.id));
 
@@ -524,14 +505,34 @@ export class ExtHostNotebookController implements ExtHostNotebookShape {
 			this._onDidChangeVisibleNotebookEditors.fire(this.visibleNotebookEditors);
 		}
 
-		if (delta.newActiveEditor === null) {
+		if (delta.value.newActiveEditor === null) {
 			// clear active notebook as current active editor is non-notebook editor
 			this._activeNotebookEditor = undefined;
-		} else if (delta.newActiveEditor) {
-			this._activeNotebookEditor = this._editors.get(delta.newActiveEditor);
+		} else if (delta.value.newActiveEditor) {
+			this._activeNotebookEditor = this._editors.get(delta.value.newActiveEditor);
 		}
-		if (delta.newActiveEditor !== undefined) {
+		if (delta.value.newActiveEditor !== undefined) {
 			this._onDidChangeActiveNotebookEditor.fire(this._activeNotebookEditor?.apiEditor);
 		}
+	}
+
+	private static _registerApiCommands(extHostCommands: ExtHostCommands) {
+
+		const notebookTypeArg = ApiCommandArgument.String.with('notebookType', 'A notebook type');
+
+		const commandDataToNotebook = new ApiCommand(
+			'vscode.executeDataToNotebook', '_executeDataToNotebook', 'Invoke notebook serializer',
+			[notebookTypeArg, new ApiCommandArgument<Uint8Array, VSBuffer>('data', 'Bytes to convert to data', v => v instanceof Uint8Array, v => VSBuffer.wrap(v))],
+			new ApiCommandResult<SerializableObjectWithBuffers<NotebookDataDto>, vscode.NotebookData>('Notebook Data', data => typeConverters.NotebookData.to(data.value))
+		);
+
+		const commandNotebookToData = new ApiCommand(
+			'vscode.executeNotebookToData', '_executeNotebookToData', 'Invoke notebook serializer',
+			[notebookTypeArg, new ApiCommandArgument<vscode.NotebookData, SerializableObjectWithBuffers<NotebookDataDto>>('NotebookData', 'Notebook data to convert to bytes', v => true, v => new SerializableObjectWithBuffers(typeConverters.NotebookData.from(v)))],
+			new ApiCommandResult<VSBuffer, Uint8Array>('Bytes', dto => dto.buffer)
+		);
+
+		extHostCommands.registerApiCommand(commandDataToNotebook);
+		extHostCommands.registerApiCommand(commandNotebookToData);
 	}
 }

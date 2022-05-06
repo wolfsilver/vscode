@@ -6,8 +6,12 @@
 import * as vscode from 'vscode';
 import * as nls from 'vscode-nls';
 import { SimpleBrowserManager } from './simpleBrowserManager';
+import { SimpleBrowserView } from './simpleBrowserView';
 
-declare const URL: typeof import('url').URL;
+declare class URL {
+	constructor(input: string, base?: string | URL);
+	hostname: string;
+}
 
 const localize = nls.loadMessageBundle();
 
@@ -35,6 +39,12 @@ export function activate(context: vscode.ExtensionContext) {
 	const manager = new SimpleBrowserManager(context.extensionUri);
 	context.subscriptions.push(manager);
 
+	context.subscriptions.push(vscode.window.registerWebviewPanelSerializer(SimpleBrowserView.viewType, {
+		deserializeWebviewPanel: async (panel, state) => {
+			manager.restore(panel, state);
+		}
+	}));
+
 	context.subscriptions.push(vscode.commands.registerCommand(showCommand, async (url?: string) => {
 		if (!url) {
 			url = await vscode.window.showInputBox({
@@ -49,8 +59,8 @@ export function activate(context: vscode.ExtensionContext) {
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand(openApiCommand, (url: vscode.Uri, showOptions?: {
-		preserveFocus?: boolean,
-		viewColumn: vscode.ViewColumn,
+		preserveFocus?: boolean;
+		viewColumn: vscode.ViewColumn;
 	}) => {
 		manager.show(url.toString(), showOptions);
 	}));

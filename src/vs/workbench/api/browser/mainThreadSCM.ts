@@ -5,13 +5,16 @@
 
 import { URI, UriComponents } from 'vs/base/common/uri';
 import { Event, Emitter } from 'vs/base/common/event';
-import { IDisposable, DisposableStore, combinedDisposable } from 'vs/base/common/lifecycle';
-import { ISCMService, ISCMRepository, ISCMProvider, ISCMResource, ISCMResourceGroup, ISCMResourceDecorations, IInputValidation, ISCMViewService, InputValidationType } from 'vs/workbench/contrib/scm/common/scm';
-import { ExtHostContext, MainThreadSCMShape, ExtHostSCMShape, SCMProviderFeatures, SCMRawResourceSplices, SCMGroupFeatures, MainContext, IExtHostContext } from '../common/extHost.protocol';
-import { Command } from 'vs/editor/common/modes';
-import { extHostNamedCustomer } from 'vs/workbench/api/common/extHostCustomers';
+import { IDisposable, DisposableStore, combinedDisposable, dispose } from 'vs/base/common/lifecycle';
+import { ISCMService, ISCMRepository, ISCMProvider, ISCMResource, ISCMResourceGroup, ISCMResourceDecorations, IInputValidation, ISCMViewService, InputValidationType, ISCMActionButtonDescriptor } from 'vs/workbench/contrib/scm/common/scm';
+import { ExtHostContext, MainThreadSCMShape, ExtHostSCMShape, SCMProviderFeatures, SCMRawResourceSplices, SCMGroupFeatures, MainContext } from '../common/extHost.protocol';
+import { Command } from 'vs/editor/common/languages';
+import { extHostNamedCustomer, IExtHostContext } from 'vs/workbench/services/extensions/common/extHostCustomers';
 import { ISplice, Sequence } from 'vs/base/common/sequence';
 import { CancellationToken } from 'vs/base/common/cancellation';
+import { MarshalledId } from 'vs/base/common/marshallingIds';
+import { ThemeIcon } from 'vs/platform/theme/common/themeService';
+import { IMarkdownString } from 'vs/base/common/htmlContent';
 
 class MainThreadSCMResourceGroup implements ISCMResourceGroup {
 
@@ -36,7 +39,7 @@ class MainThreadSCMResourceGroup implements ISCMResourceGroup {
 
 	toJSON(): any {
 		return {
-			$mid: 4,
+			$mid: MarshalledId.ScmResourceGroup,
 			sourceControlHandle: this.sourceControlHandle,
 			groupHandle: this.handle
 		};
@@ -78,7 +81,7 @@ class MainThreadSCMResource implements ISCMResource {
 
 	toJSON(): any {
 		return {
-			$mid: 3,
+			$mid: MarshalledId.ScmResource,
 			sourceControlHandle: this.sourceControlHandle,
 			groupHandle: this.groupHandle,
 			handle: this.handle
@@ -93,7 +96,7 @@ class MainThreadSCMProvider implements ISCMProvider {
 	get id(): string { return this._id; }
 
 	readonly groups = new Sequence<MainThreadSCMResourceGroup>();
-	private readonly _groupsByHandle: { [handle: number]: MainThreadSCMResourceGroup; } = Object.create(null);
+	private readonly _groupsByHandle: { [handle: number]: MainThreadSCMResourceGroup } = Object.create(null);
 
 	// get groups(): ISequence<ISCMResourceGroup> {
 	// 	return {
@@ -117,6 +120,7 @@ class MainThreadSCMProvider implements ISCMProvider {
 
 	get commitTemplate(): string { return this.features.commitTemplate || ''; }
 	get acceptInputCommand(): Command | undefined { return this.features.acceptInputCommand; }
+	get actionButton(): ISCMActionButtonDescriptor | undefined { return this.features.actionButton ?? undefined; }
 	get statusBarCommands(): Command[] | undefined { return this.features.statusBarCommands; }
 	get count(): number | undefined { return this.features.count; }
 
@@ -203,11 +207,14 @@ class MainThreadSCMProvider implements ISCMProvider {
 			for (const [start, deleteCount, rawResources] of groupSlices) {
 				const resources = rawResources.map(rawResource => {
 					const [handle, sourceUri, icons, tooltip, strikeThrough, faded, contextValue, command] = rawResource;
-					const icon = icons[0];
-					const iconDark = icons[1] || icon;
+
+					const [light, dark] = icons;
+					const icon = ThemeIcon.isThemeIcon(light) ? light : URI.revive(light);
+					const iconDark = (ThemeIcon.isThemeIcon(dark) ? dark : URI.revive(dark)) || icon;
+
 					const decorations = {
-						icon: icon ? URI.revive(icon) : undefined,
-						iconDark: iconDark ? URI.revive(iconDark) : undefined,
+						icon: icon,
+						iconDark: iconDark,
 						tooltip,
 						strikeThrough,
 						faded
@@ -256,7 +263,7 @@ class MainThreadSCMProvider implements ISCMProvider {
 
 	toJSON(): any {
 		return {
-			$mid: 5,
+			$mid: MarshalledId.ScmProvider,
 			handle: this.handle
 		};
 	}
@@ -283,10 +290,10 @@ export class MainThreadSCM implements MainThreadSCMShape {
 	}
 
 	dispose(): void {
-		this._repositories.forEach(r => r.dispose());
+		dispose(this._repositories.values());
 		this._repositories.clear();
 
-		this._repositoryDisposables.forEach(d => d.dispose());
+		dispose(this._repositoryDisposables.values());
 		this._repositoryDisposables.clear();
 
 		this._disposables.dispose();
@@ -424,16 +431,7 @@ export class MainThreadSCM implements MainThreadSCMShape {
 		repository.input.visible = visible;
 	}
 
-	$setInputBoxFocus(sourceControlHandle: number): void {
-		const repository = this._repositories.get(sourceControlHandle);
-		if (!repository) {
-			return;
-		}
-
-		repository.input.setFocus();
-	}
-
-	$showValidationMessage(sourceControlHandle: number, message: string, type: InputValidationType) {
+	$showValidationMessage(sourceControlHandle: number, message: string | IMarkdownString, type: InputValidationType) {
 		const repository = this._repositories.get(sourceControlHandle);
 		if (!repository) {
 			return;

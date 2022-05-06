@@ -3,12 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { UriComponents } from 'vs/base/common/uri';
-import { ProcessItem } from 'vs/base/common/processes';
-import { IWorkspace } from 'vs/platform/workspace/common/workspace';
 import { IStringDictionary } from 'vs/base/common/collections';
-import { IMainProcessInfo } from 'vs/platform/launch/common/launch';
+import { ProcessItem } from 'vs/base/common/processes';
+import { UriComponents } from 'vs/base/common/uri';
 import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
+import { IMainProcessInfo } from 'vs/platform/launch/common/launch';
+import { IWorkspace } from 'vs/platform/workspace/common/workspace';
 
 export const ID = 'diagnosticsService';
 export const IDiagnosticsService = createDecorator<IDiagnosticsService>(ID);
@@ -19,6 +19,7 @@ export interface IDiagnosticsService {
 	getPerformanceInfo(mainProcessInfo: IMainProcessInfo, remoteInfo: (IRemoteDiagnosticInfo | IRemoteDiagnosticError)[]): Promise<PerformanceInfo>;
 	getSystemInfo(mainProcessInfo: IMainProcessInfo, remoteInfo: (IRemoteDiagnosticInfo | IRemoteDiagnosticError)[]): Promise<SystemInfo>;
 	getDiagnostics(mainProcessInfo: IMainProcessInfo, remoteInfo: (IRemoteDiagnosticInfo | IRemoteDiagnosticError)[]): Promise<string>;
+	getWorkspaceFileExtensions(workspace: IWorkspace): Promise<{ extensions: string[] }>;
 	reportWorkspaceStats(workspace: IWorkspaceInformation): Promise<void>;
 }
 
@@ -90,4 +91,35 @@ export interface IWorkspaceInformation extends IWorkspace {
 
 export function isRemoteDiagnosticError(x: any): x is IRemoteDiagnosticError {
 	return !!x.hostName && !!x.errorMessage;
+}
+
+export class NullDiagnosticsService implements IDiagnosticsService {
+	_serviceBrand: undefined;
+
+	async getPerformanceInfo(mainProcessInfo: IMainProcessInfo, remoteInfo: (IRemoteDiagnosticInfo | IRemoteDiagnosticError)[]): Promise<PerformanceInfo> {
+		return {};
+	}
+
+	async getSystemInfo(mainProcessInfo: IMainProcessInfo, remoteInfo: (IRemoteDiagnosticInfo | IRemoteDiagnosticError)[]): Promise<SystemInfo> {
+		return {
+			processArgs: 'nullProcessArgs',
+			gpuStatus: 'nullGpuStatus',
+			screenReader: 'nullScreenReader',
+			remoteData: [],
+			os: 'nullOs',
+			memory: 'nullMemory',
+			vmHint: 'nullVmHint',
+		};
+	}
+
+	async getDiagnostics(mainProcessInfo: IMainProcessInfo, remoteInfo: (IRemoteDiagnosticInfo | IRemoteDiagnosticError)[]): Promise<string> {
+		return '';
+	}
+
+	async getWorkspaceFileExtensions(workspace: IWorkspace): Promise<{ extensions: string[] }> {
+		return { extensions: [] };
+	}
+
+	async reportWorkspaceStats(workspace: IWorkspaceInformation): Promise<void> { }
+
 }

@@ -10,7 +10,7 @@ interface BaseToWebviewMessage {
 	readonly __vscode_notebook_message: true;
 }
 
-export interface WebviewIntialized extends BaseToWebviewMessage {
+export interface WebviewInitialized extends BaseToWebviewMessage {
 	readonly type: 'initialized';
 }
 
@@ -46,6 +46,11 @@ export interface IOutputBlurMessage extends BaseToWebviewMessage {
 	readonly id: string;
 }
 
+export interface IScrollToRevealMessage extends BaseToWebviewMessage {
+	readonly type: 'scroll-to-reveal';
+	readonly scrollTop: number;
+}
+
 export interface IWheelMessage extends BaseToWebviewMessage {
 	readonly type: 'did-scroll-wheel';
 	readonly payload: any;
@@ -53,7 +58,7 @@ export interface IWheelMessage extends BaseToWebviewMessage {
 
 export interface IScrollAckMessage extends BaseToWebviewMessage {
 	readonly type: 'scroll-ack';
-	readonly data: { top: number; };
+	readonly data: { top: number };
 	readonly version: number;
 }
 
@@ -76,6 +81,11 @@ export interface IClickMarkupCellMessage extends BaseToWebviewMessage {
 	readonly altKey: boolean;
 	readonly metaKey: boolean;
 	readonly shiftKey: boolean;
+}
+
+export interface IClickedLinkMessage extends BaseToWebviewMessage {
+	readonly type: 'clicked-link';
+	readonly href: string;
 }
 
 export interface IContextMenuMarkupCellMessage extends BaseToWebviewMessage {
@@ -129,13 +139,22 @@ export interface IInitializedMarkupMessage extends BaseToWebviewMessage {
 	readonly type: 'initializedMarkup';
 }
 
-export interface ITelemetryFoundRenderedMarkdownMath extends BaseToWebviewMessage {
-	readonly type: 'telemetryFoundRenderedMarkdownMath';
+export interface ICodeBlockHighlightRequest {
+	readonly id: string;
+	readonly value: string;
+	readonly lang: string;
 }
 
-export interface ITelemetryFoundUnrenderedMarkdownMath extends BaseToWebviewMessage {
-	readonly type: 'telemetryFoundUnrenderedMarkdownMath';
-	readonly latexDirective: string;
+export interface IRenderedMarkupMessage extends BaseToWebviewMessage {
+	readonly type: 'renderedMarkup';
+	readonly cellId: string;
+	readonly html: string;
+	readonly codeBlocks: ReadonlyArray<ICodeBlockHighlightRequest>;
+}
+
+export interface IRenderedCellOutputMessage extends BaseToWebviewMessage {
+	readonly type: 'renderedCellOutput';
+	readonly codeBlocks: ReadonlyArray<ICodeBlockHighlightRequest>;
 }
 
 export interface IClearMessage {
@@ -146,29 +165,32 @@ export interface IOutputRequestMetadata {
 	/**
 	 * Additional attributes of a cell metadata.
 	 */
-	readonly custom?: { [key: string]: unknown; };
+	readonly custom?: { readonly [key: string]: unknown };
 }
 
 export interface IOutputRequestDto {
 	/**
 	 * { mime_type: value }
 	 */
-	readonly data: { [key: string]: unknown; };
+	readonly data: { readonly [key: string]: unknown };
 
 	readonly metadata?: IOutputRequestMetadata;
 	readonly outputId: string;
 }
 
+export type ICreationContent =
+	| { readonly type: RenderOutputType.Html; readonly htmlContent: string }
+	| { readonly type: RenderOutputType.Extension; readonly outputId: string; readonly valueBytes: Uint8Array; readonly metadata: unknown; readonly mimeType: string };
+
 export interface ICreationRequestMessage {
 	readonly type: 'html';
-	readonly content: { type: RenderOutputType.Html; htmlContent: string; } |
-	{ type: RenderOutputType.Extension; outputId: string; valueBytes: Uint8Array; metadata: unknown; mimeType: string; };
+	readonly content: ICreationContent;
 	readonly cellId: string;
 	readonly outputId: string;
 	cellTop: number;
 	outputOffset: number;
 	readonly left: number;
-	readonly requiredPreloads: ReadonlyArray<IControllerPreload>;
+	readonly requiredPreloads: readonly IControllerPreload[];
 	readonly initiallyHidden?: boolean;
 	readonly rendererId?: string | undefined;
 }
@@ -181,10 +203,15 @@ export interface IContentWidgetTopRequest {
 	readonly forceDisplay: boolean;
 }
 
+export interface IMarkupCellScrollTops {
+	readonly id: string;
+	readonly top: number;
+}
+
 export interface IViewScrollTopRequestMessage {
 	readonly type: 'view-scroll';
-	readonly widgets: IContentWidgetTopRequest[];
-	readonly markupCells: { id: string; top: number; }[];
+	readonly widgets: readonly IContentWidgetTopRequest[];
+	readonly markupCells: readonly IMarkupCellScrollTops[];
 }
 
 export interface IScrollRequestMessage {
@@ -215,6 +242,7 @@ export interface IShowOutputMessage {
 	readonly outputId: string;
 	readonly cellTop: number;
 	readonly outputOffset: number;
+	readonly content?: ICreationContent;
 }
 
 export interface IFocusOutputMessage {
@@ -240,14 +268,14 @@ export interface IControllerPreload {
 
 export interface IUpdateControllerPreloadsMessage {
 	readonly type: 'preload';
-	readonly resources: IControllerPreload[];
+	readonly resources: readonly IControllerPreload[];
 }
 
 export interface IUpdateDecorationsMessage {
 	readonly type: 'decorations';
 	readonly cellId: string;
-	readonly addedClassNames: string[];
-	readonly removedClassNames: string[];
+	readonly addedClassNames: readonly string[];
+	readonly removedClassNames: readonly string[];
 }
 
 export interface ICustomKernelMessage extends BaseToWebviewMessage {
@@ -305,13 +333,13 @@ export interface IMarkupCellInitialization {
 
 export interface IInitializeMarkupCells {
 	readonly type: 'initializeMarkup';
-	readonly cells: ReadonlyArray<IMarkupCellInitialization>;
+	readonly cells: readonly IMarkupCellInitialization[];
 }
 
 export interface INotebookStylesMessage {
 	readonly type: 'notebookStyles';
 	readonly styles: {
-		[key: string]: string;
+		readonly [key: string]: string;
 	};
 }
 
@@ -320,12 +348,66 @@ export interface INotebookOptionsMessage {
 	readonly options: PreloadOptions;
 }
 
-export type FromWebviewMessage = WebviewIntialized |
+export interface INotebookUpdateWorkspaceTrust {
+	readonly type: 'updateWorkspaceTrust';
+	readonly isTrusted: boolean;
+}
+export interface ITokenizedCodeBlockMessage {
+	readonly type: 'tokenizedCodeBlock';
+	readonly codeBlockId: string;
+	readonly html: string;
+}
+
+export interface ITokenizedStylesChangedMessage {
+	readonly type: 'tokenizedStylesChanged';
+	readonly css: string;
+}
+
+export interface IFindMessage {
+	readonly type: 'find';
+	readonly query: string;
+	readonly options: { wholeWord?: boolean; caseSensitive?: boolean; includeMarkup: boolean; includeOutput: boolean };
+}
+
+
+export interface IFindHighlightMessage {
+	readonly type: 'findHighlight';
+	readonly index: number;
+}
+
+export interface IFindUnHighlightMessage {
+	readonly type: 'findUnHighlight';
+	readonly index: number;
+}
+
+export interface IFindStopMessage {
+	readonly type: 'findStop';
+}
+
+export interface IFindMatch {
+	readonly type: 'preview' | 'output';
+	readonly cellId: string;
+	readonly id: string;
+	readonly index: number;
+}
+
+export interface IDidFindMessage extends BaseToWebviewMessage {
+	readonly type: 'didFind';
+	readonly matches: IFindMatch[];
+}
+
+export interface IDidFindHighlightMessage extends BaseToWebviewMessage {
+	readonly type: 'didFindHighlight';
+	readonly offset: number;
+}
+
+export type FromWebviewMessage = WebviewInitialized |
 	IDimensionMessage |
 	IMouseEnterMessage |
 	IMouseLeaveMessage |
 	IOutputFocusMessage |
 	IOutputBlurMessage |
+	IScrollToRevealMessage |
 	IWheelMessage |
 	IScrollAckMessage |
 	IBlurOutputMessage |
@@ -333,6 +415,7 @@ export type FromWebviewMessage = WebviewIntialized |
 	ICustomRendererMessage |
 	IClickedDataUrlMessage |
 	IClickMarkupCellMessage |
+	IClickedLinkMessage |
 	IContextMenuMarkupCellMessage |
 	IMouseEnterMarkupCellMessage |
 	IMouseLeaveMarkupCellMessage |
@@ -342,8 +425,10 @@ export type FromWebviewMessage = WebviewIntialized |
 	ICellDropMessage |
 	ICellDragEndMessage |
 	IInitializedMarkupMessage |
-	ITelemetryFoundRenderedMarkdownMath |
-	ITelemetryFoundUnrenderedMarkdownMath;
+	IRenderedMarkupMessage |
+	IRenderedCellOutputMessage |
+	IDidFindMessage |
+	IDidFindHighlightMessage;
 
 export type ToWebviewMessage = IClearMessage |
 	IFocusOutputMessage |
@@ -366,6 +451,13 @@ export type ToWebviewMessage = IClearMessage |
 	IUpdateSelectedMarkupCellsMessage |
 	IInitializeMarkupCells |
 	INotebookStylesMessage |
-	INotebookOptionsMessage;
+	INotebookOptionsMessage |
+	INotebookUpdateWorkspaceTrust |
+	ITokenizedCodeBlockMessage |
+	ITokenizedStylesChangedMessage |
+	IFindMessage |
+	IFindHighlightMessage |
+	IFindUnHighlightMessage |
+	IFindStopMessage;
 
 export type AnyMessage = FromWebviewMessage | ToWebviewMessage;

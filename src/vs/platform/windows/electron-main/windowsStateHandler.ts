@@ -12,9 +12,10 @@ import { IConfigurationService } from 'vs/platform/configuration/common/configur
 import { ILifecycleMainService } from 'vs/platform/lifecycle/electron-main/lifecycleMainService';
 import { ILogService } from 'vs/platform/log/common/log';
 import { IStateMainService } from 'vs/platform/state/electron-main/state';
-import { INativeWindowConfiguration, IWindowSettings } from 'vs/platform/windows/common/windows';
-import { defaultWindowState, ICodeWindow, IWindowsMainService, IWindowState as IWindowUIState, WindowMode } from 'vs/platform/windows/electron-main/windows';
-import { isSingleFolderWorkspaceIdentifier, isWorkspaceIdentifier, IWorkspaceIdentifier } from 'vs/platform/workspaces/common/workspaces';
+import { INativeWindowConfiguration, IWindowSettings } from 'vs/platform/window/common/window';
+import { IWindowsMainService } from 'vs/platform/windows/electron-main/windows';
+import { defaultWindowState, ICodeWindow, IWindowState as IWindowUIState, WindowMode } from 'vs/platform/window/electron-main/window';
+import { isSingleFolderWorkspaceIdentifier, isWorkspaceIdentifier, IWorkspaceIdentifier } from 'vs/platform/workspace/common/workspace';
 
 export interface IWindowState {
 	workspace?: IWorkspaceIdentifier;
@@ -232,11 +233,9 @@ export class WindowsStateHandler extends Disposable {
 		const windowConfig = this.configurationService.getValue<IWindowSettings | undefined>('window');
 
 		// Window state is not from a previous session: only allow fullscreen if we inherit it or user wants fullscreen
-		// or to address a Electron issue on macOS (https://github.com/microsoft/vscode/issues/125122)
 		let allowFullscreen: boolean;
 		if (state.hasDefaultState) {
-			const configAllowsFullScreen = !!(windowConfig?.newWindowDimensions && ['fullscreen', 'inherit', 'offset'].indexOf(windowConfig.newWindowDimensions) >= 0);
-			allowFullscreen = configAllowsFullScreen || (isMacintosh && windowConfig?.nativeFullScreen !== false);
+			allowFullscreen = !!(windowConfig?.newWindowDimensions && ['fullscreen', 'inherit', 'offset'].indexOf(windowConfig.newWindowDimensions) >= 0);
 		}
 
 		// Window state is from a previous session: only allow fullscreen when we got updated or user wants to restore
@@ -339,22 +338,14 @@ export class WindowsStateHandler extends Disposable {
 		// Compute x/y based on display bounds
 		// Note: important to use Math.round() because Electron does not seem to be too happy about
 		// display coordinates that are not absolute numbers.
-		let state: INewWindowState = defaultWindowState();
+		let state = defaultWindowState();
 		state.x = Math.round(displayToUse.bounds.x + (displayToUse.bounds.width / 2) - (state.width! / 2));
 		state.y = Math.round(displayToUse.bounds.y + (displayToUse.bounds.height / 2) - (state.height! / 2));
 
+		// Check for newWindowDimensions setting and adjust accordingly
 		const windowConfig = this.configurationService.getValue<IWindowSettings | undefined>('window');
 		let ensureNoOverlap = true;
-
-		// TODO@electron macOS: if the current window is fullscreen and native fullscreen
-		// is not disabled, always open a new window in fullscreen. This is a workaround
-		// for regression https://github.com/microsoft/vscode/issues/125122
-		if (isMacintosh && windowConfig?.nativeFullScreen !== false && lastActive?.isFullScreen) {
-			state.mode = WindowMode.Fullscreen;
-		}
-
-		// Adjust according to `newWindowDimensions` user setting
-		else if (windowConfig?.newWindowDimensions) {
+		if (windowConfig?.newWindowDimensions) {
 			if (windowConfig.newWindowDimensions === 'maximized') {
 				state.mode = WindowMode.Maximized;
 				ensureNoOverlap = false;
@@ -377,7 +368,7 @@ export class WindowsStateHandler extends Disposable {
 			state = this.ensureNoOverlap(state);
 		}
 
-		state.hasDefaultState = true; // flag as default state
+		(state as INewWindowState).hasDefaultState = true; // flag as default state
 
 		return state;
 	}

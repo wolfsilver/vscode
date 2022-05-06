@@ -4,16 +4,16 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { UserDataSyncClient, UserDataSyncTestServer } from 'vs/platform/userDataSync/test/common/userDataSyncClient';
+import { VSBuffer } from 'vs/base/common/buffer';
+import { Event } from 'vs/base/common/event';
 import { DisposableStore } from 'vs/base/common/lifecycle';
+import { joinPath } from 'vs/base/common/resources';
+import { IEnvironmentService } from 'vs/platform/environment/common/environment';
+import { IFileService } from 'vs/platform/files/common/files';
 import { UserDataAutoSyncService } from 'vs/platform/userDataSync/common/userDataAutoSyncService';
 import { IUserDataSyncService, SyncResource, UserDataAutoSyncError, UserDataSyncErrorCode, UserDataSyncStoreError } from 'vs/platform/userDataSync/common/userDataSync';
-import { Event } from 'vs/base/common/event';
-import { IFileService } from 'vs/platform/files/common/files';
-import { IEnvironmentService } from 'vs/platform/environment/common/environment';
-import { VSBuffer } from 'vs/base/common/buffer';
-import { joinPath } from 'vs/base/common/resources';
 import { IUserDataSyncMachinesService } from 'vs/platform/userDataSync/common/userDataSyncMachines';
+import { UserDataSyncClient, UserDataSyncTestServer } from 'vs/platform/userDataSync/test/common/userDataSyncClient';
 
 class TestUserDataAutoSyncService extends UserDataAutoSyncService {
 	protected override startAutoSync(): boolean { return false; }
@@ -37,7 +37,7 @@ suite('UserDataAutoSyncService', () => {
 		await client.setUp();
 
 		// Sync once and reset requests
-		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask()).run();
+		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask(null)).run();
 		target.reset();
 
 		const testObject: UserDataAutoSyncService = disposableStore.add(client.instantiationService.createInstance(TestUserDataAutoSyncService));
@@ -59,7 +59,7 @@ suite('UserDataAutoSyncService', () => {
 		await client.setUp();
 
 		// Sync once and reset requests
-		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask()).run();
+		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask(null)).run();
 		target.reset();
 
 		const testObject: UserDataAutoSyncService = disposableStore.add(client.instantiationService.createInstance(TestUserDataAutoSyncService));
@@ -74,7 +74,7 @@ suite('UserDataAutoSyncService', () => {
 
 		assert.deepStrictEqual(actual, [
 			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: {} },
-			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: {} }
+			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: { 'If-None-Match': '1' } }
 		]);
 	});
 
@@ -85,7 +85,7 @@ suite('UserDataAutoSyncService', () => {
 		await client.setUp();
 
 		// Sync once and reset requests
-		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask()).run();
+		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask(null)).run();
 		target.reset();
 
 		const testObject: UserDataAutoSyncService = disposableStore.add(client.instantiationService.createInstance(TestUserDataAutoSyncService));
@@ -107,7 +107,7 @@ suite('UserDataAutoSyncService', () => {
 		await client.setUp();
 
 		// Sync once and reset requests
-		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask()).run();
+		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask(null)).run();
 		target.reset();
 
 		const testObject: UserDataAutoSyncService = disposableStore.add(client.instantiationService.createInstance(TestUserDataAutoSyncService));
@@ -147,6 +147,9 @@ suite('UserDataAutoSyncService', () => {
 			// Snippets
 			{ type: 'GET', url: `${target.url}/v1/resource/snippets/latest`, headers: {} },
 			{ type: 'POST', url: `${target.url}/v1/resource/snippets`, headers: { 'If-Match': '0' } },
+			// Tasks
+			{ type: 'GET', url: `${target.url}/v1/resource/tasks/latest`, headers: {} },
+			{ type: 'POST', url: `${target.url}/v1/resource/tasks`, headers: { 'If-Match': '0' } },
 			// Global state
 			{ type: 'GET', url: `${target.url}/v1/resource/globalState/latest`, headers: {} },
 			{ type: 'POST', url: `${target.url}/v1/resource/globalState`, headers: { 'If-Match': '0' } },
@@ -175,7 +178,7 @@ suite('UserDataAutoSyncService', () => {
 
 		assert.deepStrictEqual(target.requests, [
 			// Manifest
-			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: {} }
+			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: { 'If-None-Match': '1' } }
 		]);
 
 	});
@@ -202,7 +205,7 @@ suite('UserDataAutoSyncService', () => {
 
 		assert.deepStrictEqual(target.requests, [
 			// Manifest
-			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: {} },
+			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: { 'If-None-Match': '1' } },
 			// Settings
 			{ type: 'POST', url: `${target.url}/v1/resource/settings`, headers: { 'If-Match': '1' } },
 			// Keybindings
@@ -245,7 +248,7 @@ suite('UserDataAutoSyncService', () => {
 		// Set up and sync from the client
 		const client = disposableStore.add(new UserDataSyncClient(target));
 		await client.setUp();
-		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask()).run();
+		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask(null)).run();
 
 		// Set up and sync from the test client
 		const testClient = disposableStore.add(new UserDataSyncClient(target));
@@ -267,7 +270,7 @@ suite('UserDataAutoSyncService', () => {
 		assert.deepStrictEqual((<UserDataAutoSyncError>e).code, UserDataSyncErrorCode.TurnedOff);
 		assert.deepStrictEqual(target.requests, [
 			// Manifest
-			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: {} },
+			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: { 'If-None-Match': '1' } },
 			// Machine
 			{ type: 'GET', url: `${target.url}/v1/resource/machines/latest`, headers: { 'If-None-Match': '1' } },
 		]);
@@ -286,7 +289,7 @@ suite('UserDataAutoSyncService', () => {
 		const userDataSyncMachinesService = testClient.instantiationService.get(IUserDataSyncMachinesService);
 		const machines = await userDataSyncMachinesService.getMachines();
 		const currentMachine = machines.find(m => m.isCurrent)!;
-		await userDataSyncMachinesService.setEnablement(currentMachine.id, false);
+		await userDataSyncMachinesService.setEnablements([[currentMachine.id, false]]);
 
 		target.reset();
 
@@ -298,7 +301,7 @@ suite('UserDataAutoSyncService', () => {
 		assert.deepStrictEqual((<UserDataAutoSyncError>e).code, UserDataSyncErrorCode.TurnedOff);
 		assert.deepStrictEqual(target.requests, [
 			// Manifest
-			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: {} },
+			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: { 'If-None-Match': '1' } },
 			// Machine
 			{ type: 'GET', url: `${target.url}/v1/resource/machines/latest`, headers: { 'If-None-Match': '2' } },
 			{ type: 'POST', url: `${target.url}/v1/resource/machines`, headers: { 'If-Match': '2' } },
@@ -322,7 +325,7 @@ suite('UserDataAutoSyncService', () => {
 		await testObject.sync();
 		assert.deepStrictEqual(target.requests, [
 			// Manifest
-			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: {} },
+			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: { 'If-None-Match': '1' } },
 			// Machine
 			{ type: 'POST', url: `${target.url}/v1/resource/machines`, headers: { 'If-Match': '2' } },
 		]);
@@ -334,7 +337,7 @@ suite('UserDataAutoSyncService', () => {
 		// Set up and sync from the client
 		const client = disposableStore.add(new UserDataSyncClient(target));
 		await client.setUp();
-		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask()).run();
+		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask(null)).run();
 
 		// Set up and sync from the test client
 		const testClient = disposableStore.add(new UserDataSyncClient(target));
@@ -346,7 +349,7 @@ suite('UserDataAutoSyncService', () => {
 		await client.instantiationService.get(IUserDataSyncService).reset();
 
 		// Sync again from the first client to create new session
-		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask()).run();
+		await (await client.instantiationService.get(IUserDataSyncService).createSyncTask(null)).run();
 
 		// Sync from the test client
 		target.reset();
@@ -359,7 +362,7 @@ suite('UserDataAutoSyncService', () => {
 		assert.deepStrictEqual((<UserDataAutoSyncError>e).code, UserDataSyncErrorCode.SessionExpired);
 		assert.deepStrictEqual(target.requests, [
 			// Manifest
-			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: {} },
+			{ type: 'GET', url: `${target.url}/v1/manifest`, headers: { 'If-None-Match': '1' } },
 			// Machine
 			{ type: 'GET', url: `${target.url}/v1/resource/machines/latest`, headers: { 'If-None-Match': '1' } },
 		]);

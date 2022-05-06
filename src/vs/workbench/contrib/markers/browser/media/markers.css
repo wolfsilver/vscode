@@ -103,7 +103,8 @@
 	padding-right: 10px;
 }
 
-.monaco-workbench.hc-black .markers-panel .markers-panel-container .tree-container .monaco-tl-contents {
+.monaco-workbench.hc-black .markers-panel .markers-panel-container .tree-container .monaco-tl-contents,
+.monaco-workbench.hc-light .markers-panel .markers-panel-container .tree-container .monaco-tl-contents {
 	line-height: 20px;
 }
 
@@ -139,10 +140,11 @@
 	display: flex;
 }
 
-.markers-panel .markers-panel-container .tree-container .monaco-tl-contents .details-container a.code-link {
+.markers-panel .markers-panel-container .tree-container .monaco-list:focus .monaco-list-row.focused .monaco-tl-contents .details-container a.monaco-link {
 	color: inherit;
 }
-.markers-panel .markers-panel-container .tree-container .monaco-tl-contents .details-container a.code-link .monaco-highlighted-label {
+
+.markers-panel .markers-panel-container .tree-container .monaco-tl-contents .details-container a.monaco-link .monaco-highlighted-label {
 	text-decoration: underline;
 	text-underline-position: under;
 }
@@ -155,6 +157,7 @@
 	content: ')';
 }
 
+.markers-panel .markers-panel-container .tree-container .monaco-tl-contents .details-container .multiline-actions,
 .markers-panel .markers-panel-container .tree-container .monaco-tl-contents .details-container .marker-source,
 .markers-panel .markers-panel-container .tree-container .monaco-tl-contents .details-container .marker-line {
 	margin-left: 6px;

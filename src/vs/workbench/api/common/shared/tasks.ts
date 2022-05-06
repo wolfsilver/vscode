@@ -5,6 +5,7 @@
 
 import { UriComponents } from 'vs/base/common/uri';
 import { IExtensionDescription } from 'vs/platform/extensions/common/extensions';
+import type { Dto } from 'vs/workbench/services/extensions/common/proxyIdentifier';
 
 export interface TaskDefinitionDTO {
 	type: string;
@@ -82,6 +83,11 @@ export interface TaskHandleDTO {
 	workspaceFolder: UriComponents | string;
 }
 
+export interface TaskGroupDTO {
+	isDefault?: boolean;
+	_id: string;
+}
+
 export interface TaskDTO {
 	_id: string;
 	name?: string;
@@ -89,7 +95,7 @@ export interface TaskDTO {
 	definition: TaskDefinitionDTO;
 	isBackground?: boolean;
 	source: TaskSourceDTO;
-	group?: string;
+	group?: TaskGroupDTO;
 	detail?: string;
 	presentationOptions?: TaskPresentationOptionsDTO;
 	problemMatchers: string[];
@@ -99,7 +105,7 @@ export interface TaskDTO {
 
 export interface TaskSetDTO {
 	tasks: TaskDTO[];
-	extension: IExtensionDescription;
+	extension: Dto<IExtensionDescription>;
 }
 
 export interface TaskExecutionDTO {

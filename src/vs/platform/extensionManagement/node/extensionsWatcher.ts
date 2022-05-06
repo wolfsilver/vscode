@@ -3,20 +3,20 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable } from 'vs/base/common/lifecycle';
-import { INativeEnvironmentService } from 'vs/platform/environment/common/environment';
-import { DidInstallExtensionEvent, DidUninstallExtensionEvent, IExtensionManagementService, ILocalExtension, InstallExtensionEvent } from 'vs/platform/extensionManagement/common/extensionManagement';
 import { Emitter, Event } from 'vs/base/common/event';
-import { ExtensionType, IExtensionIdentifier } from 'vs/platform/extensions/common/extensions';
-import { FileChangeType, FileSystemProviderCapabilities, IFileChange, IFileService } from 'vs/platform/files/common/files';
+import { Disposable } from 'vs/base/common/lifecycle';
 import { URI } from 'vs/base/common/uri';
+import { INativeEnvironmentService } from 'vs/platform/environment/common/environment';
+import { DidUninstallExtensionEvent, IExtensionManagementService, ILocalExtension, InstallExtensionEvent, InstallExtensionResult } from 'vs/platform/extensionManagement/common/extensionManagement';
 import { areSameExtensions } from 'vs/platform/extensionManagement/common/extensionManagementUtil';
-import { ExtUri } from 'vs/base/common/resources';
+import { IExtensionIdentifier } from 'vs/platform/extensions/common/extensions';
+import { FileChangeType, IFileChange, IFileService } from 'vs/platform/files/common/files';
 import { ILogService } from 'vs/platform/log/common/log';
+import { IUriIdentityService } from 'vs/platform/uriIdentity/common/uriIdentity';
 
 export class ExtensionsWatcher extends Disposable {
 
-	private readonly _onDidChangeExtensionsByAnotherSource = this._register(new Emitter<{ added: ILocalExtension[], removed: IExtensionIdentifier[] }>());
+	private readonly _onDidChangeExtensionsByAnotherSource = this._register(new Emitter<{ added: ILocalExtension[]; removed: IExtensionIdentifier[] }>());
 	readonly onDidChangeExtensionsByAnotherSource = this._onDidChangeExtensionsByAnotherSource.event;
 
 	private startTimestamp = 0;
@@ -28,40 +28,40 @@ export class ExtensionsWatcher extends Disposable {
 		@IFileService fileService: IFileService,
 		@INativeEnvironmentService environmentService: INativeEnvironmentService,
 		@ILogService private readonly logService: ILogService,
+		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 	) {
 		super();
-		this.extensionsManagementService.getInstalled(ExtensionType.User).then(extensions => {
+		this.extensionsManagementService.getInstalled().then(extensions => {
 			this.installedExtensions = extensions.map(e => e.identifier);
 			this.startTimestamp = Date.now();
 		});
 		this._register(extensionsManagementService.onInstallExtension(e => this.onInstallExtension(e)));
-		this._register(extensionsManagementService.onDidInstallExtension(e => this.onDidInstallExtension(e)));
+		this._register(extensionsManagementService.onDidInstallExtensions(e => this.onDidInstallExtensions(e)));
 		this._register(extensionsManagementService.onDidUninstallExtension(e => this.onDidUninstallExtension(e)));
 
 		const extensionsResource = URI.file(environmentService.extensionsPath);
-		const extUri = new ExtUri(resource => !fileService.hasCapability(resource, FileSystemProviderCapabilities.PathCaseSensitive));
 		this._register(fileService.watch(extensionsResource));
-		this._register(Event.filter(fileService.onDidFilesChange, e => e.raw.some(change => this.doesChangeAffects(change, extensionsResource, extUri)))(() => this.onDidChange()));
+		this._register(Event.filter(fileService.onDidFilesChange, e => e.rawChanges.some(change => this.doesChangeAffects(change, extensionsResource)))(() => this.onDidChange()));
 	}
 
-	private doesChangeAffects(change: IFileChange, extensionsResource: URI, extUri: ExtUri): boolean {
-		// Is not immediate child of extensions resource
-		if (!extUri.isEqual(extUri.dirname(change.resource), extensionsResource)) {
-			return false;
-		}
-
-		// .obsolete file changed
-		if (extUri.isEqual(change.resource, extUri.joinPath(extensionsResource, '.obsolete'))) {
-			return true;
-		}
-
+	private doesChangeAffects(change: IFileChange, extensionsResource: URI): boolean {
 		// Only interested in added/deleted changes
 		if (change.type !== FileChangeType.ADDED && change.type !== FileChangeType.DELETED) {
 			return false;
 		}
 
-		// Ingore changes to files starting with `.`
-		if (extUri.basename(change.resource).startsWith('.')) {
+		// Is not immediate child of extensions resource
+		if (!this.uriIdentityService.extUri.isEqual(this.uriIdentityService.extUri.dirname(change.resource), extensionsResource)) {
+			return false;
+		}
+
+		// .obsolete file changed
+		if (this.uriIdentityService.extUri.isEqual(change.resource, this.uriIdentityService.extUri.joinPath(extensionsResource, '.obsolete'))) {
+			return true;
+		}
+
+		// Ignore changes to files starting with `.`
+		if (this.uriIdentityService.extUri.basename(change.resource).startsWith('.')) {
 			return false;
 		}
 
@@ -72,10 +72,12 @@ export class ExtensionsWatcher extends Disposable {
 		this.addInstallingExtension(e.identifier);
 	}
 
-	private onDidInstallExtension(e: DidInstallExtensionEvent): void {
-		this.removeInstallingExtension(e.identifier);
-		if (!e.error) {
-			this.addInstalledExtension(e.identifier);
+	private onDidInstallExtensions(results: readonly InstallExtensionResult[]): void {
+		for (const e of results) {
+			this.removeInstallingExtension(e.identifier);
+			if (e.local) {
+				this.addInstalledExtension(e.identifier);
+			}
 		}
 	}
 
@@ -109,7 +111,7 @@ export class ExtensionsWatcher extends Disposable {
 
 	private async onDidChange(): Promise<void> {
 		if (this.installedExtensions) {
-			const extensions = await this.extensionsManagementService.getInstalled(ExtensionType.User);
+			const extensions = await this.extensionsManagementService.getInstalled();
 			const added = extensions.filter(e => {
 				if ([...this.installingExtensions, ...this.installedExtensions!].some(identifier => areSameExtensions(identifier, e.identifier))) {
 					return false;
