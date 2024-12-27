@@ -89,6 +89,7 @@ import { openContextMenu } from './terminalContextMenu.js';
 import type { IMenu } from '../../../../platform/actions/common/actions.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { TerminalContribCommandId } from '../terminalContribExports.js';
+import { ISCMService } from '../../scm/common/scm.js';
 
 const enum Constants {
 	/**
@@ -2466,6 +2467,7 @@ interface ITerminalLabelTemplateProperties {
 	shellType?: string | undefined;
 	shellCommand?: string | undefined;
 	shellPromptInput?: string | undefined;
+	branch?: string | undefined; // 新增 branch 属性
 }
 
 const enum TerminalLabelType {
@@ -2485,12 +2487,32 @@ export class TerminalLabelComputer extends Disposable {
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@ITerminalConfigurationService private readonly _terminalConfigurationService: ITerminalConfigurationService,
-		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService
+		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
+		@ISCMService private readonly _scmService: ISCMService // 注入 SCM 服务
 	) {
 		super();
 	}
 
-	refreshLabel(instance: Pick<ITerminalInstance, 'shellLaunchConfig' | 'shellType' | 'cwd' | 'fixedCols' | 'fixedRows' | 'initialCwd' | 'processName' | 'sequence' | 'userHome' | 'workspaceFolder' | 'staticTitle' | 'capabilities' | 'title' | 'description'>, reset?: boolean): void {
+	private _getBranch(cwd: string | undefined): string | undefined {
+		if (!cwd) {
+			return undefined;
+		}
+		try {
+			const repositories = this._scmService.repositories;
+			for (const repo of repositories) {
+				if (repo.provider.label === 'Git' && repo.provider.rootUri && cwd.startsWith(repo.provider.rootUri.fsPath)) {
+					// 获取当前分支名
+					return repo.provider.state?.HEAD?.name;
+				}
+			}
+		} catch (e) {
+			// 如果获取失败则返回 undefined
+			return undefined;
+		}
+		return undefined;
+	}
+
+	refreshLabel(instance: Pick<ITerminalInstance, 'shellLaunchConfig' | 'shellType' | 'cwd' | 'fixedCols' | 'fixedRows' | 'initialCwd' | 'processName' | 'sequence' | 'userHome' | 'workspaceFolder' | 'staticTitle' | 'capabilities' | 'title' | 'description'>, reset?: boolean): Promise<void> {
 		this._title = this.computeLabel(instance, this._terminalConfigurationService.config.tabs.title, TerminalLabelType.Title, reset);
 		this._description = this.computeLabel(instance, this._terminalConfigurationService.config.tabs.description, TerminalLabelType.Description);
 		if (this._title !== instance.title || this._description !== instance.description || reset) {
@@ -2504,6 +2526,8 @@ export class TerminalLabelComputer extends Disposable {
 		labelType: TerminalLabelType,
 		reset?: boolean
 	) {
+		const branch = this._getBranch(instance.cwd);
+
 		const type = instance.shellLaunchConfig.attachPersistentProcess?.type || instance.shellLaunchConfig.type;
 		const commandDetection = instance.capabilities.get(TerminalCapability.CommandDetection);
 		const promptInputModel = commandDetection?.promptInputModel;
@@ -2530,6 +2554,7 @@ export class TerminalLabelComputer extends Disposable {
 			shellPromptInput: commandDetection?.executingCommand && promptInputModel
 				? promptInputModel.getCombinedString(true) + nonTaskSpinner
 				: promptInputModel?.getCombinedString(true),
+			branch, // 添加 branch 属性
 		};
 		templateProperties.workspaceFolderName = instance.workspaceFolder?.name ?? templateProperties.workspaceFolder;
 		labelTemplate = labelTemplate.trim();
