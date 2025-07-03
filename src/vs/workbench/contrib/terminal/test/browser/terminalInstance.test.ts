@@ -386,7 +386,7 @@ suite('Workbench - TerminalInstance', () => {
 		});
 		test('should resolve branch', () => {
 			const terminalLabelComputer = createLabelComputer({ terminal: { integrated: { tabs: { separator: ' - ', title: '${branch}', description: '${branch}' } } } });
-			terminalLabelComputer.refreshLabel(createInstance({ capabilities, processName: 'zsh', workspaceFolder: { uri: URI.from({ scheme: Schemas.file, path: 'folder' }) } as IWorkspaceFolder }));
+			terminalLabelComputer.refreshLabel(createInstance({ capabilities, processName: 'zsh', cwd: '/test/folder' }));
 			// Note: In tests, branch will be undefined since Git extension is not available
 			strictEqual(terminalLabelComputer.title, '');
 			strictEqual(terminalLabelComputer.description, '');

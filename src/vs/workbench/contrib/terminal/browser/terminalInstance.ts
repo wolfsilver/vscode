@@ -2605,7 +2605,7 @@ export class TerminalLabelComputer extends Disposable {
 				? promptInputModel.getCombinedString(true) + nonTaskSpinner
 				: promptInputModel?.getCombinedString(true),
 			progress: this._getProgressStateString(instance.progressState),
-			branch: this._getBranchName(instance.workspaceFolder)
+			branch: this._getBranchName(instance.cwd || instance.initialCwd)
 		};
 		templateProperties.workspaceFolderName = instance.workspaceFolder?.name ?? templateProperties.workspaceFolder;
 		labelTemplate = labelTemplate.trim();
@@ -2657,35 +2657,60 @@ export class TerminalLabelComputer extends Disposable {
 		}
 	}
 
-	private _getBranchName(workspaceFolder?: IWorkspaceFolder): string | undefined {
-		if (!workspaceFolder?.uri) {
+	private _getBranchName(cwdPath?: string): string | undefined {
+		if (!cwdPath) {
 			return undefined;
 		}
 
-		const cacheKey = workspaceFolder.uri.toString();
+		const cacheKey = cwdPath;
 		
 		// Return cached value if available
 		if (this._branchCache.has(cacheKey)) {
 			return this._branchCache.get(cacheKey);
 		}
 
-		// Start async update for this workspace folder
-		this._updateBranchCache(workspaceFolder);
+		// Start async update for this directory path
+		this._updateBranchCache(cwdPath);
 		
 		// Return undefined initially (will be updated async)
 		return undefined;
 	}
 
-	private async _updateBranchCache(workspaceFolder: IWorkspaceFolder): Promise<void> {
-		const cacheKey = workspaceFolder.uri.toString();
+	private async _updateBranchCache(cwdPath: string): Promise<void> {
+		const cacheKey = cwdPath;
 		
 		try {
-			// Look for .git directory or file in the workspace folder
-			const gitUri = URI.joinPath(workspaceFolder.uri, '.git');
+			// Create URI from the cwd path
+			const cwdUri = URI.file(cwdPath);
 			
-			// Check if .git exists
-			const gitExists = await this._fileService.exists(gitUri);
-			if (!gitExists) {
+			// Look for .git directory or file starting from cwd and moving up the directory tree
+			let currentDir = cwdUri;
+			let gitUri: URI | undefined;
+			
+			// Traverse up the directory tree to find .git
+			while (currentDir.path !== '/' && currentDir.path !== currentDir.fsPath) {
+				const potentialGitUri = URI.joinPath(currentDir, '.git');
+				const gitExists = await this._fileService.exists(potentialGitUri);
+				
+				if (gitExists) {
+					gitUri = potentialGitUri;
+					break;
+				}
+				
+				// Move up one directory
+				currentDir = URI.joinPath(currentDir, '..');
+			}
+			
+			// Also check root directory
+			if (!gitUri) {
+				const rootGitUri = URI.joinPath(currentDir, '.git');
+				const gitExists = await this._fileService.exists(rootGitUri);
+				if (gitExists) {
+					gitUri = rootGitUri;
+				}
+			}
+			
+			if (!gitUri) {
 				this._branchCache.set(cacheKey, '');
 				return;
 			}
@@ -2704,7 +2729,9 @@ export class TerminalLabelComputer extends Disposable {
 					const gitDirPath = gitFileText.substring('gitdir: '.length);
 					// Convert relative path to absolute if needed
 					if (!path.isAbsolute(gitDirPath)) {
-						gitDirUri = URI.joinPath(workspaceFolder.uri, gitDirPath);
+						// Relative to the parent directory of the .git file
+						const gitFileDir = URI.joinPath(gitUri, '..');
+						gitDirUri = URI.joinPath(gitFileDir, gitDirPath);
 					} else {
 						gitDirUri = URI.file(gitDirPath);
 					}
