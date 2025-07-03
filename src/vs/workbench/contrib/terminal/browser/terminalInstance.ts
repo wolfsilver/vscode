@@ -2550,6 +2550,9 @@ export class TerminalLabelComputer extends Disposable {
 	private _title: string = '';
 	private _description: string = '';
 	private _branchCache = new Map<string, string>();
+	private _branchCacheTimestamps = new Map<string, number>();
+	private _branchUpdateTimers = new Map<string, any>();
+	private _pendingUpdates = new Set<string>();
 	get title(): string | undefined { return this._title; }
 	get description(): string { return this._description; }
 
@@ -2663,44 +2666,67 @@ export class TerminalLabelComputer extends Disposable {
 		}
 
 		const cacheKey = cwdPath;
-		
-		// Return cached value if available
-		if (this._branchCache.has(cacheKey)) {
+		const now = Date.now();
+		const lastUpdateTime = this._branchCacheTimestamps.get(cacheKey) || 0;
+		const cacheMaxAge = 5000; // 5 seconds cache validity
+
+		// Return cached value if available and still fresh
+		if (this._branchCache.has(cacheKey) && (now - lastUpdateTime) < cacheMaxAge) {
 			return this._branchCache.get(cacheKey);
 		}
 
-		// Start async update for this directory path
-		this._updateBranchCache(cwdPath);
-		
-		// Return undefined initially (will be updated async)
-		return undefined;
+		// Schedule async update with debouncing if not already pending
+		if (!this._pendingUpdates.has(cacheKey)) {
+			this._pendingUpdates.add(cacheKey);
+
+			// Clear any existing timer for this path
+			const existingTimer = this._branchUpdateTimers.get(cacheKey);
+			if (existingTimer) {
+				clearTimeout(existingTimer);
+			}
+
+			// Set up a debounced update check
+			const timer = setTimeout(() => {
+				this._updateBranchCache(cwdPath);
+				this._branchUpdateTimers.delete(cacheKey);
+				this._pendingUpdates.delete(cacheKey);
+			}, 500); // Debounce for 500ms
+
+			this._branchUpdateTimers.set(cacheKey, timer);
+		}
+
+		// Return cached value if available, otherwise return undefined
+		return this._branchCache.get(cacheKey);
 	}
 
 	private async _updateBranchCache(cwdPath: string): Promise<void> {
 		const cacheKey = cwdPath;
-		
+
 		try {
+			// Update timestamp at the start of the update
+			this._branchCacheTimestamps.set(cacheKey, Date.now());
+
 			// Create URI from the cwd path
 			const cwdUri = URI.file(cwdPath);
-			
+
 			// Look for .git directory or file starting from cwd and moving up the directory tree
 			let currentDir = cwdUri;
 			let gitUri: URI | undefined;
-			
+
 			// Traverse up the directory tree to find .git
 			while (currentDir.path !== '/' && currentDir.path !== currentDir.fsPath) {
 				const potentialGitUri = URI.joinPath(currentDir, '.git');
 				const gitExists = await this._fileService.exists(potentialGitUri);
-				
+
 				if (gitExists) {
 					gitUri = potentialGitUri;
 					break;
 				}
-				
+
 				// Move up one directory
 				currentDir = URI.joinPath(currentDir, '..');
 			}
-			
+
 			// Also check root directory
 			if (!gitUri) {
 				const rootGitUri = URI.joinPath(currentDir, '.git');
@@ -2709,7 +2735,7 @@ export class TerminalLabelComputer extends Disposable {
 					gitUri = rootGitUri;
 				}
 			}
-			
+
 			if (!gitUri) {
 				this._branchCache.set(cacheKey, '');
 				return;
@@ -2718,12 +2744,12 @@ export class TerminalLabelComputer extends Disposable {
 			// Handle .git file (git worktree) or .git directory
 			let gitDirUri = gitUri;
 			const gitStat = await this._fileService.stat(gitUri);
-			
+
 			if (!gitStat.isDirectory) {
 				// .git is a file, read it to get the actual git directory path
 				const gitFileContent = await this._fileService.readFile(gitUri);
 				const gitFileText = gitFileContent.value.toString().trim();
-				
+
 				// Format: "gitdir: /path/to/git/dir"
 				if (gitFileText.startsWith('gitdir: ')) {
 					const gitDirPath = gitFileText.substring('gitdir: '.length);
@@ -2751,7 +2777,7 @@ export class TerminalLabelComputer extends Disposable {
 
 			const headContent = await this._fileService.readFile(headUri);
 			const headText = headContent.value.toString().trim();
-			
+
 			// Parse the HEAD file content
 			// Format: "ref: refs/heads/branch-name" or just the commit hash
 			let branchName = '';
@@ -2759,19 +2785,30 @@ export class TerminalLabelComputer extends Disposable {
 				branchName = headText.substring('ref: refs/heads/'.length);
 			}
 			// If it's a detached HEAD (just a hash), leave branchName as empty string
-			
+
 			// Update cache and check if value changed
 			const previousValue = this._branchCache.get(cacheKey);
 			this._branchCache.set(cacheKey, branchName);
-			
-			// If the branch changed, we don't automatically trigger a refresh since
-			// the label computer is called synchronously. The next call to refreshLabel
-			// will pick up the new cached value.
-			
+
+			// If the branch changed, trigger a label refresh to update the display immediately
+			if (previousValue !== branchName) {
+				this._onDidChangeLabel.fire({ title: this._title, description: this._description });
+			}
+
 		} catch (error) {
 			// Gracefully handle any errors when reading Git files
 			this._branchCache.set(cacheKey, '');
 		}
+	}
+
+	override dispose(): void {
+		// Clear all pending timers
+		for (const timer of this._branchUpdateTimers.values()) {
+			clearTimeout(timer);
+		}
+		this._branchUpdateTimers.clear();
+		this._pendingUpdates.clear();
+		super.dispose();
 	}
 }
 
