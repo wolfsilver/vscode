@@ -2538,6 +2538,7 @@ interface ITerminalLabelTemplateProperties {
 	shellType?: string | undefined;
 	shellCommand?: string | undefined;
 	shellPromptInput?: string | undefined;
+	branch?: string | null | undefined;
 }
 
 const enum TerminalLabelType {
@@ -2548,6 +2549,7 @@ const enum TerminalLabelType {
 export class TerminalLabelComputer extends Disposable {
 	private _title: string = '';
 	private _description: string = '';
+	private _branchCache = new Map<string, string>();
 	get title(): string | undefined { return this._title; }
 	get description(): string { return this._description; }
 
@@ -2602,7 +2604,8 @@ export class TerminalLabelComputer extends Disposable {
 			shellPromptInput: commandDetection?.executingCommand && promptInputModel
 				? promptInputModel.getCombinedString(true) + nonTaskSpinner
 				: promptInputModel?.getCombinedString(true),
-			progress: this._getProgressStateString(instance.progressState)
+			progress: this._getProgressStateString(instance.progressState),
+			branch: this._getBranchName(instance.workspaceFolder)
 		};
 		templateProperties.workspaceFolderName = instance.workspaceFolder?.name ?? templateProperties.workspaceFolder;
 		labelTemplate = labelTemplate.trim();
@@ -2651,6 +2654,65 @@ export class TerminalLabelComputer extends Disposable {
 			case 2: return '$(error)';
 			case 3: return '$(loading~spin)';
 			case 4: return '$(alert)';
+		}
+	}
+
+	private _getBranchName(workspaceFolder?: IWorkspaceFolder): string | undefined {
+		if (!workspaceFolder?.uri) {
+			return undefined;
+		}
+
+		const cacheKey = workspaceFolder.uri.toString();
+		
+		// Return cached value if available
+		if (this._branchCache.has(cacheKey)) {
+			return this._branchCache.get(cacheKey);
+		}
+
+		// Start async update for this workspace folder
+		this._updateBranchCache(workspaceFolder);
+		
+		// Return undefined initially (will be updated async)
+		return undefined;
+	}
+
+	private async _updateBranchCache(workspaceFolder: IWorkspaceFolder): Promise<void> {
+		const cacheKey = workspaceFolder.uri.toString();
+		
+		try {
+			// Look for .git directory or file in the workspace folder
+			const gitUri = URI.joinPath(workspaceFolder.uri, '.git');
+			
+			// Check if .git exists
+			const gitExists = await this._fileService.exists(gitUri);
+			if (!gitExists) {
+				this._branchCache.set(cacheKey, '');
+				return;
+			}
+
+			// Read .git/HEAD to get current branch
+			const headUri = URI.joinPath(gitUri, 'HEAD');
+			const headExists = await this._fileService.exists(headUri);
+			if (!headExists) {
+				this._branchCache.set(cacheKey, '');
+				return;
+			}
+
+			const headContent = await this._fileService.readFile(headUri);
+			const headText = headContent.value.toString().trim();
+			
+			// Parse the HEAD file content
+			// Format: "ref: refs/heads/branch-name" or just the commit hash
+			if (headText.startsWith('ref: refs/heads/')) {
+				const branchName = headText.substring('ref: refs/heads/'.length);
+				this._branchCache.set(cacheKey, branchName);
+			} else {
+				// If it's a detached HEAD (just a hash), store empty string
+				this._branchCache.set(cacheKey, '');
+			}
+		} catch (error) {
+			// Gracefully handle any errors when reading Git files
+			this._branchCache.set(cacheKey, '');
 		}
 	}
 }
