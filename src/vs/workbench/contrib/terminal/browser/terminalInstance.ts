@@ -2690,8 +2690,32 @@ export class TerminalLabelComputer extends Disposable {
 				return;
 			}
 
-			// Read .git/HEAD to get current branch
-			const headUri = URI.joinPath(gitUri, 'HEAD');
+			// Handle .git file (git worktree) or .git directory
+			let gitDirUri = gitUri;
+			const gitStat = await this._fileService.stat(gitUri);
+			
+			if (!gitStat.isDirectory) {
+				// .git is a file, read it to get the actual git directory path
+				const gitFileContent = await this._fileService.readFile(gitUri);
+				const gitFileText = gitFileContent.value.toString().trim();
+				
+				// Format: "gitdir: /path/to/git/dir"
+				if (gitFileText.startsWith('gitdir: ')) {
+					const gitDirPath = gitFileText.substring('gitdir: '.length);
+					// Convert relative path to absolute if needed
+					if (!path.isAbsolute(gitDirPath)) {
+						gitDirUri = URI.joinPath(workspaceFolder.uri, gitDirPath);
+					} else {
+						gitDirUri = URI.file(gitDirPath);
+					}
+				} else {
+					this._branchCache.set(cacheKey, '');
+					return;
+				}
+			}
+
+			// Read HEAD file to get current branch
+			const headUri = URI.joinPath(gitDirUri, 'HEAD');
 			const headExists = await this._fileService.exists(headUri);
 			if (!headExists) {
 				this._branchCache.set(cacheKey, '');
@@ -2703,13 +2727,20 @@ export class TerminalLabelComputer extends Disposable {
 			
 			// Parse the HEAD file content
 			// Format: "ref: refs/heads/branch-name" or just the commit hash
+			let branchName = '';
 			if (headText.startsWith('ref: refs/heads/')) {
-				const branchName = headText.substring('ref: refs/heads/'.length);
-				this._branchCache.set(cacheKey, branchName);
-			} else {
-				// If it's a detached HEAD (just a hash), store empty string
-				this._branchCache.set(cacheKey, '');
+				branchName = headText.substring('ref: refs/heads/'.length);
 			}
+			// If it's a detached HEAD (just a hash), leave branchName as empty string
+			
+			// Update cache and check if value changed
+			const previousValue = this._branchCache.get(cacheKey);
+			this._branchCache.set(cacheKey, branchName);
+			
+			// If the branch changed, we don't automatically trigger a refresh since
+			// the label computer is called synchronously. The next call to refreshLabel
+			// will pick up the new cached value.
+			
 		} catch (error) {
 			// Gracefully handle any errors when reading Git files
 			this._branchCache.set(cacheKey, '');
