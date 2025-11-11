@@ -31,6 +31,7 @@ const terminalDescriptors = '\n- ' + [
 	'`\${shellType}`: ' + localize('shellType', "the detected shell type."),
 	'`\${shellCommand}`: ' + localize('shellCommand', "the command being executed according to shell integration. This also requires high confidence in the detected command line, which may not work in some prompt frameworks."),
 	'`\${shellPromptInput}`: ' + localize('shellPromptInput', "the shell's full prompt input according to shell integration."),
+	'`\${branch}`: ' + localize('branch', "the current git branch name of the terminal's working directory. Supports git worktrees."),
 ].join('\n- '); // intentionally concatenated to not produce a string that is too long for translations
 
 let terminalTitle = localize('terminalTitle', "Controls the terminal title. Variables are substituted based on the context:");

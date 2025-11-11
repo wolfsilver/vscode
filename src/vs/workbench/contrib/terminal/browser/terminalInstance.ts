@@ -57,6 +57,7 @@ import { PANEL_BACKGROUND, SIDE_BAR_BACKGROUND } from '../../../common/theme.js'
 import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { AccessibilityVerbositySettingId } from '../../accessibility/browser/accessibilityConfiguration.js';
+import { ISCMService } from '../../scm/common/scm.js';
 import { IRequestAddInstanceToGroupEvent, ITerminalConfigurationService, ITerminalContribution, ITerminalInstance, IXtermColorProvider, TerminalDataTransfers } from './terminal.js';
 import { TerminalLaunchHelpAction } from './terminalActions.js';
 import { TerminalEditorInput } from './terminalEditorInput.js';
@@ -2574,6 +2575,7 @@ interface ITerminalLabelTemplateProperties {
 	shellType?: string | undefined;
 	shellCommand?: string | undefined;
 	shellPromptInput?: string | undefined;
+	branch?: string | undefined;
 }
 
 const enum TerminalLabelType {
@@ -2590,10 +2592,14 @@ export class TerminalLabelComputer extends Disposable {
 	private readonly _onDidChangeLabel = this._register(new Emitter<{ title: string; description: string }>());
 	readonly onDidChangeLabel = this._onDidChangeLabel.event;
 
+	private _currentBranch: string | undefined;
+	private _currentRepositoryDisposables = this._register(new DisposableStore());
+
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@ITerminalConfigurationService private readonly _terminalConfigurationService: ITerminalConfigurationService,
-		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService
+		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
+		@ISCMService private readonly _scmService: ISCMService
 	) {
 		super();
 	}
@@ -2616,6 +2622,11 @@ export class TerminalLabelComputer extends Disposable {
 		const commandDetection = instance.capabilities.get(TerminalCapability.CommandDetection);
 		const promptInputModel = commandDetection?.promptInputModel;
 		const nonTaskSpinner = type === 'Task' ? '' : ' $(loading~spin)';
+
+
+		// Update branch information based on current working directory
+		this._updateBranchForCwd(instance.cwd || instance.initialCwd);
+
 		const templateProperties: ITerminalLabelTemplateProperties = {
 			cwd: instance.cwd || instance.initialCwd || '',
 			cwdFolder: '',
@@ -2638,7 +2649,8 @@ export class TerminalLabelComputer extends Disposable {
 			shellPromptInput: commandDetection?.executingCommand && promptInputModel
 				? promptInputModel.getCombinedString(true) + nonTaskSpinner
 				: promptInputModel?.getCombinedString(true),
-			progress: this._getProgressStateString(instance.progressState)
+			progress: this._getProgressStateString(instance.progressState),
+			branch: this._currentBranch
 		};
 		templateProperties.workspaceFolderName = instance.workspaceFolder?.name ?? templateProperties.workspaceFolder;
 		labelTemplate = labelTemplate.trim();
@@ -2687,6 +2699,65 @@ export class TerminalLabelComputer extends Disposable {
 			case 2: return '$(error)';
 			case 3: return '$(loading~spin)';
 			case 4: return '$(alert)';
+		}
+	}
+
+	private _updateBranchForCwd(cwd: string | undefined): void {
+		if (!cwd) {
+			this._currentBranch = undefined;
+			this._currentRepositoryDisposables.clear();
+			return;
+		}
+
+		try {
+			const cwdUri = URI.file(cwd);
+			const repository = this._scmService.getRepository(cwdUri);
+
+			if (!repository) {
+				this._currentBranch = undefined;
+				this._currentRepositoryDisposables.clear();
+				return;
+			}
+
+			// Update branch from repository provider
+			const updateBranch = () => {
+				const provider = repository.provider as any;
+				// Git extension stores HEAD state with branch name
+				// Access through internal _repository property (git extension implementation detail)
+				if (provider._repository) {
+					const head = provider._repository._HEAD || provider._repository.HEAD;
+					if (head && head.name) {
+						this._currentBranch = head.name;
+					} else if (head && head.commit) {
+						// Detached HEAD state - show short commit hash
+						this._currentBranch = head.commit.substring(0, 8);
+					} else {
+						this._currentBranch = undefined;
+					}
+				} else {
+					this._currentBranch = undefined;
+				}
+			};
+
+			// Clear previous repository subscriptions
+			this._currentRepositoryDisposables.clear();
+
+			// Initial branch update
+			updateBranch();
+
+			// Subscribe to repository changes to update branch
+			// This handles branch switches, commits, etc. and works with git worktrees
+			if (repository.provider.onDidChangeResources) {
+				this._currentRepositoryDisposables.add(
+					repository.provider.onDidChangeResources(() => {
+						updateBranch();
+					})
+				);
+			}
+		} catch (error) {
+			// Error accessing git repository
+			this._currentBranch = undefined;
+			this._currentRepositoryDisposables.clear();
 		}
 	}
 }
