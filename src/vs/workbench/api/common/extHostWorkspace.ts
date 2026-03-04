@@ -189,6 +189,9 @@ export class ExtHostWorkspace implements ExtHostWorkspaceShape, IExtHostWorkspac
 	private readonly _onDidGrantWorkspaceTrust = new Emitter<void>();
 	readonly onDidGrantWorkspaceTrust: Event<void> = this._onDidGrantWorkspaceTrust.event;
 
+	private readonly _onDidChangeWorkspaceTrustedFolders = new Emitter<void>();
+	readonly onDidChangeWorkspaceTrustedFolders: Event<void> = this._onDidChangeWorkspaceTrustedFolders.event;
+
 	private readonly _logService: ILogService;
 	private readonly _requestIdProvider: Counter;
 	private readonly _barrier: Barrier;
@@ -587,7 +590,7 @@ export class ExtHostWorkspace implements ExtHostWorkspaceShape, IExtHostWorkspac
 				options: {
 
 					ignoreSymlinks: typeof options.followSymlinks === 'boolean' ? !options.followSymlinks : undefined,
-					disregardIgnoreFiles: typeof options.useIgnoreFiles === 'boolean' ? !options.useIgnoreFiles : undefined,
+					disregardIgnoreFiles: typeof options.useIgnoreFiles?.local === 'boolean' ? !options.useIgnoreFiles?.local : undefined,
 					disregardGlobalIgnoreFiles: typeof options.useIgnoreFiles?.global === 'boolean' ? !options.useIgnoreFiles?.global : undefined,
 					disregardParentIgnoreFiles: typeof options.useIgnoreFiles?.parent === 'boolean' ? !options.useIgnoreFiles?.parent : undefined,
 					disregardExcludeSettings: options.useExcludeSettings !== undefined && options.useExcludeSettings === ExcludeSettingOptions.None,
@@ -802,6 +805,10 @@ export class ExtHostWorkspace implements ExtHostWorkspaceShape, IExtHostWorkspac
 		return this._trusted;
 	}
 
+	requestResourceTrust(options: vscode.ResourceTrustRequestOptions): Promise<boolean | undefined> {
+		return this._proxy.$requestResourceTrust(options);
+	}
+
 	requestWorkspaceTrust(options?: vscode.WorkspaceTrustRequestOptions): Promise<boolean | undefined> {
 		return this._proxy.$requestWorkspaceTrust(options);
 	}
@@ -811,6 +818,14 @@ export class ExtHostWorkspace implements ExtHostWorkspaceShape, IExtHostWorkspac
 			this._trusted = true;
 			this._onDidGrantWorkspaceTrust.fire();
 		}
+	}
+
+	$onDidChangeWorkspaceTrustedFolders(): void {
+		this._onDidChangeWorkspaceTrustedFolders.fire();
+	}
+
+	isResourceTrusted(resource: vscode.Uri): Promise<boolean> {
+		return this._proxy.$isResourceTrusted(resource);
 	}
 
 	// --- edit sessions ---

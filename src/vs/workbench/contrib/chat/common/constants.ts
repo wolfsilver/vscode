@@ -9,22 +9,51 @@ import { ServicesAccessor } from '../../../../platform/instantiation/common/inst
 import { RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 
 export enum ChatConfiguration {
+	AIDisabled = 'chat.disableAIFeatures',
+	PluginsEnabled = 'chat.plugins.enabled',
+	PluginLocations = 'chat.pluginLocations',
+	PluginMarketplaces = 'chat.plugins.marketplaces',
 	AgentEnabled = 'chat.agent.enabled',
-	Edits2Enabled = 'chat.edits2.enabled',
+	PlanAgentDefaultModel = 'chat.planAgent.defaultModel',
+	ExploreAgentDefaultModel = 'chat.exploreAgent.defaultModel',
+	RequestQueueingDefaultAction = 'chat.requestQueuing.defaultAction',
+	AgentStatusEnabled = 'chat.agentsControl.enabled',
+	EditorAssociations = 'chat.editorAssociations',
+	UnifiedAgentsBar = 'chat.unifiedAgentsBar.enabled',
+	AgentSessionProjectionEnabled = 'chat.agentSessionProjection.enabled',
+	EditModeHidden = 'chat.editMode.hidden',
 	ExtensionToolsEnabled = 'chat.extensionTools.enabled',
+	RepoInfoEnabled = 'chat.repoInfo.enabled',
 	EditRequests = 'chat.editRequests',
+	InlineReferencesStyle = 'chat.inlineReferences.style',
+	AutoReply = 'chat.autoReply',
 	GlobalAutoApprove = 'chat.tools.global.autoApprove',
 	AutoApproveEdits = 'chat.tools.edits.autoApprove',
+	AutoApprovedUrls = 'chat.tools.urls.autoApprove',
+	EligibleForAutoApproval = 'chat.tools.eligibleForAutoApproval',
 	EnableMath = 'chat.math.enabled',
 	CheckpointsEnabled = 'chat.checkpoints.enabled',
-	AgentSessionsViewLocation = 'chat.agentSessionsViewLocation',
 	ThinkingStyle = 'chat.agent.thinkingStyle',
+	ThinkingGenerateTitles = 'chat.agent.thinking.generateTitles',
+	TerminalToolsInThinking = 'chat.agent.thinking.terminalTools',
+	SimpleTerminalCollapsible = 'chat.tools.terminal.simpleCollapsible',
+	ThinkingPhrases = 'chat.agent.thinking.phrases',
+	AutoExpandToolFailures = 'chat.tools.autoExpandFailures',
 	TodosShowWidget = 'chat.tools.todos.showWidget',
-	UseCloudButtonV2 = 'chat.useCloudButtonV2',
-	ShowAgentSessionsViewDescription = 'chat.showAgentSessionsViewDescription',
-	EmptyStateHistoryEnabled = 'chat.emptyState.history.enabled',
+	NotifyWindowOnConfirmation = 'chat.notifyWindowOnConfirmation',
 	NotifyWindowOnResponseReceived = 'chat.notifyWindowOnResponseReceived',
+	ChatViewSessionsEnabled = 'chat.viewSessions.enabled',
+	ChatViewSessionsGrouping = 'chat.viewSessions.grouping',
+	ChatViewSessionsOrientation = 'chat.viewSessions.orientation',
+	ChatViewProgressBadgeEnabled = 'chat.viewProgressBadge.enabled',
+	ChatContextUsageEnabled = 'chat.contextUsage.enabled',
 	SubagentToolCustomAgents = 'chat.customAgentInSubagent.enabled',
+	ShowCodeBlockProgressAnimation = 'chat.agent.codeBlockProgress',
+	RestoreLastPanelSession = 'chat.restoreLastPanelSession',
+	ExitAfterDelegation = 'chat.exitAfterDelegation',
+	ExplainChangesEnabled = 'chat.editing.explainChanges.enabled',
+	GrowthNotificationEnabled = 'chat.growthNotification.enabled',
+	ChatCustomizationMenuEnabled = 'chat.customizationsMenu.enabled',
 }
 
 /**
@@ -56,6 +85,18 @@ export enum ThinkingDisplayMode {
 	Collapsed = 'collapsed',
 	CollapsedPreview = 'collapsedPreview',
 	FixedScrolling = 'fixedScrolling',
+}
+
+export enum CollapsedToolsDisplayMode {
+	Off = 'off',
+	WithThinking = 'withThinking',
+	Always = 'always',
+}
+
+export enum ChatNotificationMode {
+	Off = 'off',
+	WindowNotFocused = 'windowNotFocused',
+	Always = 'always',
 }
 
 export type RawChatParticipantLocation = 'panel' | 'terminal' | 'notebook' | 'editing-session';
@@ -118,7 +159,6 @@ export function isSupportedChatFileScheme(accessor: ServicesAccessor, scheme: st
 	return true;
 }
 
-export const AGENT_SESSIONS_VIEWLET_ID = 'workbench.view.chat.sessions'; // TODO@bpasero clear once settled
 export const MANAGE_CHAT_COMMAND_ID = 'workbench.action.chat.manage';
 export const ChatEditorTitleMaxLength = 30;
 
