@@ -45,7 +45,8 @@ export class DefaultLinesDiffComputer implements ILinesDiffComputer {
 		}
 
 		const timeout = options.maxComputationTimeMs === 0 ? InfiniteTimeout.instance : new DateTimeout(options.maxComputationTimeMs);
-		const considerWhitespaceChanges = !options.ignoreTrimWhitespace;
+		const ignoreAllWhitespace = options.ignoreAllWhitespace ?? false;
+		const considerWhitespaceChanges = !(options.ignoreTrimWhitespace || ignoreAllWhitespace);
 
 		const perfectHashes = new Map<string, number>();
 		function getOrCreateHash(text: string): number {
@@ -57,8 +58,11 @@ export class DefaultLinesDiffComputer implements ILinesDiffComputer {
 			return hash;
 		}
 
-		const originalLinesHashes = originalLines.map((l) => getOrCreateHash(l.trim()));
-		const modifiedLinesHashes = modifiedLines.map((l) => getOrCreateHash(l.trim()));
+		const normalizeLineForComparison = ignoreAllWhitespace
+			? (line: string) => line.replace(/\s+/g, '')
+			: (line: string) => line.trim();
+		const originalLinesHashes = originalLines.map((l) => getOrCreateHash(normalizeLineForComparison(l)));
+		const modifiedLinesHashes = modifiedLines.map((l) => getOrCreateHash(normalizeLineForComparison(l)));
 
 		const sequence1 = new LineSequence(originalLinesHashes, originalLines);
 		const sequence2 = new LineSequence(modifiedLinesHashes, modifiedLines);

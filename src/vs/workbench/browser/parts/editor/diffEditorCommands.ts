@@ -29,6 +29,7 @@ export const DIFF_FOCUS_SECONDARY_SIDE = 'workbench.action.compareEditor.focusSe
 export const DIFF_FOCUS_OTHER_SIDE = 'workbench.action.compareEditor.focusOtherSide';
 export const DIFF_OPEN_SIDE = 'workbench.action.compareEditor.openSide';
 export const TOGGLE_DIFF_IGNORE_TRIM_WHITESPACE = 'toggle.diff.ignoreTrimWhitespace';
+export const TOGGLE_DIFF_IGNORE_ALL_WHITESPACE = 'toggle.diff.ignoreAllWhitespace';
 export const DIFF_SWAP_SIDES = 'workbench.action.compareEditor.swapSides';
 
 export function registerDiffEditorCommands(): void {
@@ -168,6 +169,18 @@ export function registerDiffEditorCommands(): void {
 		configService.updateValue(m.uri, key, !val);
 	}
 
+	function toggleDiffIgnoreAllWhitespace(accessor: ServicesAccessor, args: unknown[]): void {
+		const configService = accessor.get(ITextResourceConfigurationService);
+		const activeTextDiffEditor = getActiveTextDiffEditor(accessor, args);
+
+		const m = activeTextDiffEditor?.getControl()?.getModifiedEditor()?.getModel();
+		if (!m) { return; }
+
+		const key = 'diffEditor.ignoreAllWhitespace';
+		const val = configService.getValue(m.uri, key);
+		configService.updateValue(m.uri, key, !val);
+	}
+
 	async function swapDiffSides(accessor: ServicesAccessor, args: unknown[]): Promise<void> {
 		const editorService = accessor.get(IEditorService);
 
@@ -256,6 +269,14 @@ export function registerDiffEditorCommands(): void {
 	});
 
 	KeybindingsRegistry.registerCommandAndKeybindingRule({
+		id: TOGGLE_DIFF_IGNORE_ALL_WHITESPACE,
+		weight: KeybindingWeight.WorkbenchContrib,
+		when: undefined,
+		primary: undefined,
+		handler: (accessor, ...args) => toggleDiffIgnoreAllWhitespace(accessor, args)
+	});
+
+	KeybindingsRegistry.registerCommandAndKeybindingRule({
 		id: DIFF_SWAP_SIDES,
 		weight: KeybindingWeight.WorkbenchContrib,
 		when: undefined,
@@ -267,6 +288,15 @@ export function registerDiffEditorCommands(): void {
 		command: {
 			id: TOGGLE_DIFF_SIDE_BY_SIDE,
 			title: localize2('toggleInlineView', "Toggle Inline View"),
+			category: localize('compare', "Compare")
+		},
+		when: TextCompareEditorActiveContext
+	});
+
+	MenuRegistry.appendMenuItem(MenuId.CommandPalette, {
+		command: {
+			id: TOGGLE_DIFF_IGNORE_ALL_WHITESPACE,
+			title: localize2('toggleAllWhitespaceDifferences', "Toggle Show All Whitespace Differences"),
 			category: localize('compare', "Compare")
 		},
 		when: TextCompareEditorActiveContext
