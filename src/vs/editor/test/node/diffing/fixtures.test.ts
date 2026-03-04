@@ -26,7 +26,7 @@ suite('diffing fixtures', () => {
 		});
 	});
 
-	test('advanced ignoreAllWhitespace ignores intra-line whitespace-only changes', () => {
+	test('ignoreAllWhitespace ignores intra-line whitespace-only changes', () => {
 		const diffingAlgo = new DefaultLinesDiffComputer();
 		const diff = diffingAlgo.computeDiff(
 			['const value = 1;'],
@@ -36,7 +36,7 @@ suite('diffing fixtures', () => {
 		assert.deepStrictEqual(diff.changes, []);
 	});
 
-	test('advanced reports intra-line whitespace-only changes when ignoreAllWhitespace is disabled', () => {
+	test('reports intra-line whitespace-only changes when ignoreAllWhitespace is disabled', () => {
 		const diffingAlgo = new DefaultLinesDiffComputer();
 		const diff = diffingAlgo.computeDiff(
 			['const value = 1;'],

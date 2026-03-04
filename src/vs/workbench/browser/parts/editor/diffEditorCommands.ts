@@ -296,7 +296,7 @@ export function registerDiffEditorCommands(): void {
 	MenuRegistry.appendMenuItem(MenuId.CommandPalette, {
 		command: {
 			id: TOGGLE_DIFF_IGNORE_ALL_WHITESPACE,
-			title: localize2('toggleAllWhitespaceDifferences', "Toggle Show All Whitespace Differences"),
+			title: localize2('toggleAllWhitespaceDifferences', "Toggle Ignore All Whitespace Differences"),
 			category: localize('compare', "Compare")
 		},
 		when: TextCompareEditorActiveContext

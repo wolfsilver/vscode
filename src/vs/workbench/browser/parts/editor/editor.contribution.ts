@@ -649,10 +649,10 @@ MenuRegistry.appendMenuItem(MenuId.EditorTitle, {
 MenuRegistry.appendMenuItem(MenuId.EditorTitle, {
 	command: {
 		id: TOGGLE_DIFF_IGNORE_ALL_WHITESPACE,
-		title: localize('ignoreAllWhitespace.label', "Show All Whitespace Differences"),
+		title: localize('ignoreAllWhitespace.label', "Ignore All Whitespace Differences"),
 		icon: toggleWhitespace,
 		precondition: TextCompareEditorActiveContext,
-		toggled: ContextKeyExpr.equals('config.diffEditor.ignoreAllWhitespace', false),
+		toggled: ContextKeyExpr.equals('config.diffEditor.ignoreAllWhitespace', true),
 	},
 	group: 'navigation',
 	when: TextCompareEditorActiveContext,

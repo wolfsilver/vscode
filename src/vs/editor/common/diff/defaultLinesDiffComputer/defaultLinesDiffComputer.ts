@@ -20,6 +20,8 @@ import { extendDiffsToEntireWordIfAppropriate, optimizeSequenceDiffs, removeShor
 import { LineSequence } from './lineSequence.js';
 import { LinesSliceCharSequence } from './linesSliceCharSequence.js';
 
+const allWhitespaceRegex = /\s+/g;
+
 export class DefaultLinesDiffComputer implements ILinesDiffComputer {
 	private readonly dynamicProgrammingDiffing = new DynamicProgrammingDiffing();
 	private readonly myersDiffingAlgorithm = new MyersDiffAlgorithm();
@@ -59,7 +61,7 @@ export class DefaultLinesDiffComputer implements ILinesDiffComputer {
 		}
 
 		const normalizeLineForComparison = ignoreAllWhitespace
-			? (line: string) => line.replace(/\s+/g, '')
+			? (line: string) => line.replace(allWhitespaceRegex, '')
 			: (line: string) => line.trim();
 		const originalLinesHashes = originalLines.map((l) => getOrCreateHash(normalizeLineForComparison(l)));
 		const modifiedLinesHashes = modifiedLines.map((l) => getOrCreateHash(normalizeLineForComparison(l)));
