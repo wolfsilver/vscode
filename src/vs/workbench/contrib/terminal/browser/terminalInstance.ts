@@ -2734,19 +2734,18 @@ export class TerminalLabelComputer extends Disposable {
 				return undefined;
 			}
 
-			// Get the HEAD branch from the repository provider
+			// Get the branch name from the repository provider
 			// This works correctly with git worktrees as each worktree has its own HEAD
 			const provider = repository.provider;
 			if (!provider || !provider.rootUri) {
 				return undefined;
 			}
 
-			// Access the git repository state to get branch information
-			// Note: This uses 'any' type because ISCMProvider doesn't expose git-specific properties
-			// The git extension's provider exposes the repository state through this property
-			const state = (provider as any).state;
-			if (state && state.HEAD && state.HEAD.name) {
-				return state.HEAD.name;
+			// Access the git branch name exposed through the provider
+			// The git extension updates this whenever the git status changes
+			const branchName = (provider as any).branchName;
+			if (branchName) {
+				return branchName;
 			}
 
 			return undefined;

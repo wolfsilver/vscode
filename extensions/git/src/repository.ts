@@ -11,7 +11,7 @@ import * as path from 'path';
 import picomatch from 'picomatch';
 import { CancellationError, CancellationToken, CancellationTokenSource, Command, commands, CustomExecution, Disposable, Event, EventEmitter, ExcludeSettingOptions, FileDecoration, l10n, LogLevel, LogOutputChannel, Memento, ProcessExecution, ProgressLocation, ProgressOptions, RelativePattern, scm, ShellExecution, SourceControl, SourceControlInputBox, SourceControlInputBoxValidation, SourceControlInputBoxValidationType, SourceControlResourceDecorations, SourceControlResourceGroup, SourceControlResourceState, TabInputNotebookDiff, TabInputTextDiff, TabInputTextMultiDiff, Task, TaskRunOn, tasks, ThemeColor, ThemeIcon, Uri, window, workspace, WorkspaceEdit, WorkspaceFolder } from 'vscode';
 import { ActionButton } from './actionButton';
-import { ApiRepository, ApiRepositoryState } from './api/api1';
+import { ApiRepository } from './api/api1';
 import type { Branch, BranchQuery, Change, CommitOptions, DiffChange, FetchOptions, LogOptions, Ref, Remote, RepositoryKind } from './api/git';
 import { ForcePushMode, GitErrorCodes, RefType, Status } from './api/git.constants';
 import { AutoFetcher } from './autofetch';
@@ -972,11 +972,6 @@ export class Repository implements Disposable {
 		const root = Uri.file(repository.root);
 		this._sourceControl = scm.createSourceControl('git', 'Git', root, icon, this._isHidden, parent);
 		this._sourceControl.contextValue = repository.kind;
-
-		// Expose git repository state through the sourceControl object
-		// This allows other VS Code features (like terminal) to access git state
-		// via repository.provider.state without needing to use the Git extension API
-		(this._sourceControl as any).state = new ApiRepositoryState(this);
 
 		this._sourceControl.quickDiffProvider = new GitQuickDiffProvider(this, this.repositoryResolver, logger);
 		this._sourceControl.secondaryQuickDiffProvider = new StagedResourceQuickDiffProvider(this, logger);
@@ -2826,6 +2821,7 @@ export class Repository implements Disposable {
 			this._updateResourceGroupsState(resourceGroups);
 
 			this._onDidChangeStatus.fire();
+			this._updateBranchName();
 		}
 		catch (err) {
 			if (err instanceof CancellationError) {
@@ -2850,6 +2846,13 @@ export class Repository implements Disposable {
 
 		// set count badge
 		this.setCountBadge();
+	}
+
+	private _updateBranchName(): void {
+		// Update the branch name in the source control provider
+		// This allows the terminal and other components to access the current branch
+		// via repository.provider.branchName without needing the Git extension API
+		(this._sourceControl as any).branchName = this.HEAD?.name;
 	}
 
 	private async getStatus(cancellationToken?: CancellationToken): Promise<GitResourceGroups> {
