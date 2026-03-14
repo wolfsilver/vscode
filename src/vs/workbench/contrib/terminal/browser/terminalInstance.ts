@@ -2741,10 +2741,9 @@ export class TerminalLabelComputer extends Disposable {
 				return undefined;
 			}
 
-			// Access the git API to get branch information
-			// The provider's contextValue observable should contain branch info
-			// We need to check if there's a way to get the current branch name
-			// For now, we'll try to get it from a common git API pattern
+			// Access the git repository state to get branch information
+			// Note: This uses 'any' type because ISCMProvider doesn't expose git-specific properties
+			// The git extension's provider exposes the repository state through this property
 			const state = (provider as any).state;
 			if (state && state.HEAD && state.HEAD.name) {
 				return state.HEAD.name;
