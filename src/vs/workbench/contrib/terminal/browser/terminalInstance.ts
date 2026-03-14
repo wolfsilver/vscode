@@ -191,6 +191,11 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	private _workspaceFolder?: IWorkspaceFolder;
 	private _labelComputer?: TerminalLabelComputer;
 	private _userHome?: string;
+	private _branch?: string;
+	private _branchHeadUri?: URI;
+	private _branchRefreshPromise?: Promise<void>;
+	private _branchUpdateRequested: boolean = false;
+	private readonly _branchWatch = this._register(new MutableDisposable<DisposableStore>());
 	private _hasScrollBar?: boolean;
 	private _usedShellIntegrationInjection: boolean = false;
 	get usedShellIntegrationInjection(): boolean { return this._usedShellIntegrationInjection; }
@@ -199,6 +204,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	private _lineDataEventAddon: LineDataEventAddon | undefined;
 	private readonly _scopedContextKeyService: IContextKeyService;
 	private _resizeDebouncer?: TerminalResizeDebouncer;
+	get branch(): string | undefined { return this._branch; }
 
 	readonly capabilities = this._register(new TerminalCapabilityStoreMultiplexer());
 	readonly statusList: ITerminalStatusList;
@@ -607,7 +613,10 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 				this._labelComputer?.refreshLabel(this);
 			}
 		}));
-		this._register(this._workspaceContextService.onDidChangeWorkspaceFolders(() => this._labelComputer?.refreshLabel(this)));
+		this._register(this._workspaceContextService.onDidChangeWorkspaceFolders(() => {
+			this._updateBranchInfo();
+			this._labelComputer?.refreshLabel(this);
+		}));
 
 		// Clear out initial data events after 10 seconds, hopefully extension hosts are up and
 		// running at that point.
@@ -1458,6 +1467,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 		this._register(processManager.onProcessReady(async (e) => {
 			this._onProcessIdReady.fire(this);
 			this._initialCwd = await this.getInitialCwd();
+			this._updateBranchInfo();
 			// Set the initial name based on the _resolved_ shell launch config, this will also
 			// ensure the resolved icon gets shown
 			if (!this._labelComputer) {
@@ -1497,11 +1507,13 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 			switch (type) {
 				case ProcessPropertyType.Cwd:
 					this._cwd = value as IProcessPropertyMap[ProcessPropertyType.Cwd];
+					this._updateBranchInfo();
 					this._labelComputer?.refreshLabel(this);
 					break;
 				case ProcessPropertyType.InitialCwd:
 					this._initialCwd = value as IProcessPropertyMap[ProcessPropertyType.InitialCwd];
 					this._cwd = this._initialCwd;
+					this._updateBranchInfo();
 					this._setTitle(this.title, TitleEventSource.Config);
 					this._icon = this._shellLaunchConfig.attachPersistentProcess?.icon || this._shellLaunchConfig.icon;
 					this._onIconChanged.fire({ instance: this, userInitiated: false });
@@ -2315,6 +2327,132 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 		return undefined;
 	}
 
+	private _updateBranchInfo(): void {
+		if (this._branchRefreshPromise) {
+			this._branchUpdateRequested = true;
+			return;
+		}
+		const promise = this._doUpdateBranchInfo();
+		this._branchRefreshPromise = promise;
+		promise.finally(() => {
+			if (this._branchRefreshPromise === promise) {
+				this._branchRefreshPromise = undefined;
+			}
+			if (this._branchUpdateRequested) {
+				this._branchUpdateRequested = false;
+				this._updateBranchInfo();
+			}
+		});
+	}
+
+	private async _doUpdateBranchInfo(): Promise<void> {
+		const info = await this._resolveBranchInfo();
+		const branchChanged = info?.branch !== this._branch;
+		this._branch = info?.branch;
+		this._applyBranchWatch(info?.headUri);
+		if (branchChanged) {
+			this._labelComputer?.refreshLabel(this);
+		}
+	}
+
+	private async _resolveBranchInfo(): Promise<{ branch?: string; headUri?: URI } | undefined> {
+		const candidates = this._getBranchCandidateUris();
+		for (const candidate of candidates) {
+			const result = await this._resolveGitBranch(candidate);
+			if (result) {
+				return result;
+			}
+		}
+		return undefined;
+	}
+
+	private _getBranchCandidateUris(): URI[] {
+		const uris: URI[] = [];
+		const seen = new Set<string>();
+		const add = (uri: URI | undefined) => {
+			if (!uri || !this._fileService.hasProvider(uri)) {
+				return;
+			}
+			const key = uri.toString();
+			if (!seen.has(key)) {
+				seen.add(key);
+				uris.push(uri);
+			}
+		};
+
+		const cwd = this._cwd || this._initialCwd;
+		if (cwd && path.isAbsolute(cwd)) {
+			add(URI.file(cwd));
+		}
+		add(this._workspaceFolder?.uri);
+
+		return uris;
+	}
+
+	private async _resolveGitBranch(baseUri: URI): Promise<{ branch?: string; headUri?: URI } | undefined> {
+		const gitUri = URI.joinPath(baseUri, '.git');
+		try {
+			const stat = await this._fileService.stat(gitUri);
+			let gitDirUri = gitUri;
+			if (!stat.isDirectory) {
+				const gitDirContent = await this._fileService.readFile(gitUri);
+				const gitDirPath = gitDirContent.value.toString().trim().replace(/^gitdir:\s*/i, '');
+				if (!gitDirPath) {
+					return undefined;
+				}
+				gitDirUri = this._toAbsoluteGitDir(baseUri, gitDirPath);
+			}
+
+			const headUri = URI.joinPath(gitDirUri, 'HEAD');
+			const headContents = await this._fileService.readFile(headUri);
+			const branch = this._parseGitHead(headContents.value.toString());
+			return { branch, headUri };
+		} catch {
+			return undefined;
+		}
+	}
+
+	private _toAbsoluteGitDir(baseUri: URI, gitDirPath: string): URI {
+		if (path.isAbsolute(gitDirPath)) {
+			return URI.file(gitDirPath);
+		}
+		return URI.joinPath(baseUri, gitDirPath);
+	}
+
+	private _parseGitHead(headContents: string): string | undefined {
+		const trimmed = headContents.trim();
+		if (!trimmed) {
+			return undefined;
+		}
+		if (trimmed.startsWith('ref:')) {
+			const ref = trimmed.replace(/^ref:\s*/i, '');
+			const parts = ref.split('/');
+			return parts[parts.length - 1] || ref;
+		}
+		// Detached HEAD, show short hash
+		return trimmed.substring(0, 8);
+	}
+
+	private _applyBranchWatch(headUri?: URI): void {
+		if (!headUri) {
+			this._branchHeadUri = undefined;
+			this._branchWatch.clear();
+			return;
+		}
+		if (this._branchHeadUri && this._branchHeadUri.toString() === headUri.toString() && this._branchWatch.value) {
+			return;
+		}
+		this._branchHeadUri = headUri;
+		const store = new DisposableStore();
+		store.add(this._fileService.watch(headUri));
+		store.add(this._fileService.onDidFilesChange(e => {
+			if (e.contains(headUri)) {
+				this._updateBranchInfo();
+			}
+		}));
+		this._branchWatch.value = store;
+	}
+
 	private async _refreshProperty<T extends ProcessPropertyType>(type: T): Promise<IProcessPropertyMap[T]> {
 		await this.processReady;
 		return this._processManager.refreshProperty(type);
@@ -2604,6 +2742,7 @@ interface ITerminalLabelTemplateProperties {
 	cwdFolder?: string | null | undefined;
 	workspaceFolderName?: string | null | undefined;
 	workspaceFolder?: string | null | undefined;
+	branch?: string | null | undefined;
 	local?: string | null | undefined;
 	process?: string | null | undefined;
 	sequence?: string | null | undefined;
@@ -2638,7 +2777,7 @@ export class TerminalLabelComputer extends Disposable {
 		super();
 	}
 
-	refreshLabel(instance: Pick<ITerminalInstance, 'shellLaunchConfig' | 'shellType' | 'cwd' | 'fixedCols' | 'fixedRows' | 'initialCwd' | 'processName' | 'sequence' | 'userHome' | 'workspaceFolder' | 'staticTitle' | 'capabilities' | 'title' | 'description'>, reset?: boolean): void {
+	refreshLabel(instance: Pick<ITerminalInstance, 'shellLaunchConfig' | 'shellType' | 'cwd' | 'fixedCols' | 'fixedRows' | 'initialCwd' | 'processName' | 'sequence' | 'userHome' | 'workspaceFolder' | 'staticTitle' | 'capabilities' | 'title' | 'description' | 'branch'>, reset?: boolean): void {
 		const titleTemplate = instance.shellLaunchConfig.titleTemplate ?? this._terminalConfigurationService.config.tabs.title;
 		this._title = this.computeLabel(instance, titleTemplate, TerminalLabelType.Title, reset);
 		this._description = this.computeLabel(instance, this._terminalConfigurationService.config.tabs.description, TerminalLabelType.Description);
@@ -2648,7 +2787,7 @@ export class TerminalLabelComputer extends Disposable {
 	}
 
 	computeLabel(
-		instance: Pick<ITerminalInstance, 'shellLaunchConfig' | 'shellType' | 'cwd' | 'fixedCols' | 'fixedRows' | 'initialCwd' | 'processName' | 'sequence' | 'userHome' | 'workspaceFolder' | 'staticTitle' | 'capabilities' | 'title' | 'description' | 'progressState'>,
+		instance: Pick<ITerminalInstance, 'shellLaunchConfig' | 'shellType' | 'cwd' | 'fixedCols' | 'fixedRows' | 'initialCwd' | 'processName' | 'sequence' | 'userHome' | 'workspaceFolder' | 'staticTitle' | 'capabilities' | 'title' | 'description' | 'progressState' | 'branch'>,
 		labelTemplate: string,
 		labelType: TerminalLabelType,
 		reset?: boolean
@@ -2662,6 +2801,7 @@ export class TerminalLabelComputer extends Disposable {
 			cwdFolder: '',
 			workspaceFolderName: instance.workspaceFolder?.name,
 			workspaceFolder: instance.workspaceFolder ? path.basename(instance.workspaceFolder.uri.fsPath) : undefined,
+			branch: instance.branch,
 			local: type === 'Local' ? terminalStrings.typeLocal : undefined,
 			process: instance.processName,
 			sequence: instance.sequence,

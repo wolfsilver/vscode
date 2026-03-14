@@ -23,6 +23,7 @@ const terminalDescriptors = '\n- ' + [
 	'`\${cwdFolder}`: ' + localize('cwdFolder', "the terminal's current working directory, displayed for multi-root workspaces or in a single root workspace when the value differs from the initial working directory. On Windows, this will only be displayed when shell integration is enabled."),
 	'`\${workspaceFolder}`: ' + localize('workspaceFolder', "the workspace in which the terminal was launched."),
 	'`\${workspaceFolderName}`: ' + localize('workspaceFolderName', "the `name` of the workspace in which the terminal was launched."),
+	'`\${branch}`: ' + localize('branch', "the current Git branch for the terminal's working directory."),
 	'`\${local}`: ' + localize('local', "indicates a local terminal in a remote workspace."),
 	'`\${process}`: ' + localize('process', "the name of the terminal process."),
 	'`\${progress}`: ' + localize('progress', "the progress state as reported by the `OSC 9;4` sequence."),

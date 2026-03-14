@@ -842,6 +842,7 @@ export interface ITerminalInstance extends IBaseTerminalInstance {
 	readonly staticTitle?: string;
 	readonly progressState?: IProgressState;
 	readonly workspaceFolder?: IWorkspaceFolder;
+	readonly branch?: string;
 	readonly cwd?: string;
 	readonly initialCwd?: string;
 	readonly os?: OperatingSystem;
