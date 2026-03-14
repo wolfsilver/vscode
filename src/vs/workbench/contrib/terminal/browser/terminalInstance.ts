@@ -2639,9 +2639,6 @@ export class TerminalLabelComputer extends Disposable {
 		@ISCMService private readonly _scmService: ISCMService
 	) {
 		super();
-		// Subscribe to SCM repository changes to update labels when branch changes
-		this._register(this._scmService.onDidAddRepository(() => this._onDidChangeLabel.fire({ title: this._title, description: this._description })));
-		this._register(this._scmService.onDidRemoveRepository(() => this._onDidChangeLabel.fire({ title: this._title, description: this._description })));
 	}
 
 	refreshLabel(instance: Pick<ITerminalInstance, 'shellLaunchConfig' | 'shellType' | 'cwd' | 'fixedCols' | 'fixedRows' | 'initialCwd' | 'processName' | 'sequence' | 'userHome' | 'workspaceFolder' | 'staticTitle' | 'capabilities' | 'title' | 'description'>, reset?: boolean): void {
