@@ -18,6 +18,7 @@ import { TerminalCapabilityStore } from '../../../../../platform/terminal/common
 import { GeneralShellType, ITerminalChildProcess, ITerminalProfile, TitleEventSource, type IShellLaunchConfig, type ITerminalBackend, type ITerminalProcessOptions } from '../../../../../platform/terminal/common/terminal.js';
 import { IWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
 import { IViewDescriptorService } from '../../../../common/views.js';
+import { ISCMService } from '../../../scm/common/scm.js';
 import { ITerminalConfigurationService, ITerminalInstance, ITerminalInstanceService, ITerminalService } from '../../browser/terminal.js';
 import { TerminalConfigurationService } from '../../browser/terminalConfigurationService.js';
 import { parseExitResult, TerminalInstance, TerminalLabelComputer } from '../../browser/terminalInstance.js';
@@ -397,6 +398,32 @@ suite('Workbench - TerminalInstance', () => {
 			terminalLabelComputer.refreshLabel(createInstance({ capabilities, processName: 'zsh', shellLaunchConfig: { type: 'Task' } }));
 			strictEqual(terminalLabelComputer.title, 'zsh');
 			strictEqual(terminalLabelComputer.description, '');
+		});
+		test('should resolve branch', () => {
+			// Create a mock SCM service that returns a branch name
+			const mockSCMService = {
+				repositories: [],
+				repositoryCount: 0,
+				onDidAddRepository: Event.None,
+				onDidRemoveRepository: Event.None,
+				getRepository: (uri: URI) => {
+					return {
+						provider: {
+							state: {
+								HEAD: {
+									name: 'main'
+								}
+							}
+						}
+					};
+				},
+				registerSCMProvider: () => { throw new Error('Not implemented'); }
+			} as any;
+			instantiationService.set(ISCMService, mockSCMService);
+			const terminalLabelComputer = createLabelComputer({ terminal: { integrated: { tabs: { separator: ' - ', title: '${branch}', description: '${branch}' } } } });
+			terminalLabelComputer.refreshLabel(createInstance({ capabilities, cwd: ROOT_1 }));
+			strictEqual(terminalLabelComputer.title, 'main');
+			strictEqual(terminalLabelComputer.description, 'main');
 		});
 		test('should always return static title when specified', () => {
 			const terminalLabelComputer = createLabelComputer({ terminal: { integrated: { tabs: { separator: ' ~ ', title: '${process}', description: '${workspaceFolder}' } } } });

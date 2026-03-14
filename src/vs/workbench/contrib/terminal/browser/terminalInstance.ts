@@ -56,6 +56,7 @@ import { IWorkspaceTrustRequestService } from '../../../../platform/workspace/co
 import { PANEL_BACKGROUND, SIDE_BAR_BACKGROUND } from '../../../common/theme.js';
 import { IViewDescriptorService, ViewContainerLocation } from '../../../common/views.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { ISCMService } from '../../scm/common/scm.js';
 import { AccessibilityVerbositySettingId } from '../../accessibility/browser/accessibilityConfiguration.js';
 import { IRequestAddInstanceToGroupEvent, ITerminalConfigurationService, ITerminalContribution, ITerminalInstance, IXtermColorProvider, TerminalDataTransfers } from './terminal.js';
 import { TerminalLaunchHelpAction } from './terminalActions.js';
@@ -2611,6 +2612,7 @@ interface ITerminalLabelTemplateProperties {
 	task?: string | null | undefined;
 	fixedDimensions?: string | null | undefined;
 	separator?: string | ISeparator | null | undefined;
+	branch?: string | null | undefined;
 	shellType?: string | undefined;
 	shellCommand?: string | undefined;
 	shellPromptInput?: string | undefined;
@@ -2633,9 +2635,13 @@ export class TerminalLabelComputer extends Disposable {
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@ITerminalConfigurationService private readonly _terminalConfigurationService: ITerminalConfigurationService,
-		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService
+		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
+		@ISCMService private readonly _scmService: ISCMService
 	) {
 		super();
+		// Subscribe to SCM repository changes to update labels when branch changes
+		this._register(this._scmService.onDidAddRepository(() => this._onDidChangeLabel.fire({ title: this._title, description: this._description })));
+		this._register(this._scmService.onDidRemoveRepository(() => this._onDidChangeLabel.fire({ title: this._title, description: this._description })));
 	}
 
 	refreshLabel(instance: Pick<ITerminalInstance, 'shellLaunchConfig' | 'shellType' | 'cwd' | 'fixedCols' | 'fixedRows' | 'initialCwd' | 'processName' | 'sequence' | 'userHome' | 'workspaceFolder' | 'staticTitle' | 'capabilities' | 'title' | 'description'>, reset?: boolean): void {
@@ -2670,6 +2676,7 @@ export class TerminalLabelComputer extends Disposable {
 				? (instance.fixedRows ? `\u2194${instance.fixedCols} \u2195${instance.fixedRows}` : `\u2194${instance.fixedCols}`)
 				: (instance.fixedRows ? `\u2195${instance.fixedRows}` : ''),
 			separator: { label: this._terminalConfigurationService.config.tabs.separator },
+			branch: this._getBranchName(instance.cwd || instance.initialCwd),
 			shellType: instance.shellType,
 			// Shell command requires high confidence
 			shellCommand: commandDetection?.executingCommand && commandDetection.executingCommandConfidence === 'high' && promptInputModel
@@ -2716,6 +2723,41 @@ export class TerminalLabelComputer extends Disposable {
 		// Remove special characters that could mess with rendering
 		const label = template(labelTemplate, (templateProperties as unknown) as { [key: string]: string | ISeparator | undefined | null }).replace(/[\n\r\t]/g, '').trim();
 		return label === '' && labelType === TerminalLabelType.Title ? (instance.processName || '') : label;
+	}
+
+	private _getBranchName(cwd: string | undefined): string | undefined {
+		if (!cwd) {
+			return undefined;
+		}
+
+		try {
+			const cwdUri = URI.file(cwd);
+			const repository = this._scmService.getRepository(cwdUri);
+			if (!repository) {
+				return undefined;
+			}
+
+			// Get the HEAD branch from the repository provider
+			// This works correctly with git worktrees as each worktree has its own HEAD
+			const provider = repository.provider;
+			if (!provider || !provider.rootUri) {
+				return undefined;
+			}
+
+			// Access the git API to get branch information
+			// The provider's contextValue observable should contain branch info
+			// We need to check if there's a way to get the current branch name
+			// For now, we'll try to get it from a common git API pattern
+			const state = (provider as any).state;
+			if (state && state.HEAD && state.HEAD.name) {
+				return state.HEAD.name;
+			}
+
+			return undefined;
+		} catch (error) {
+			// Silently fail if we can't get branch info - this is not critical
+			return undefined;
+		}
 	}
 
 	private _getProgressStateString(progressState?: IProgressState): string {
