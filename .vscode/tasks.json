@@ -225,8 +225,7 @@
 			"windows": {
 				"command": ".\\scripts\\code.bat"
 			},
-			"problemMatcher": [],
-			"inSessions": true
+			"problemMatcher": []
 		},
 		{
 			"label": "Run Dev Sessions",
@@ -238,7 +237,6 @@
 			"args": [
 				"--sessions"
 			],
-			"inSessions": true,
 			"problemMatcher": []
 		},
 		{
@@ -388,7 +386,7 @@
 		{
 			"label": "Launch Component Explorer",
 			"type": "shell",
-			"command": "npx component-explorer serve -c ./test/componentFixtures/component-explorer.json -vv",
+			"command": "npx component-explorer serve -c ./test/componentFixtures/component-explorer.json -vv --kill-if-running",
 			"isBackground": true,
 			"problemMatcher": {
 				"owner": "component-explorer",
@@ -404,6 +402,18 @@
 					"beginsPattern": ".*Setting up sessions.*",
 					"endsPattern": "Redirection server listening on.*"
 				}
+			}
+		},
+		{
+			"label": "Install & Watch",
+			"type": "shell",
+			"command": "npm install && npm run watch",
+			"windows": {
+				"command": "cmd /d /c \"npm install && npm run watch\""
+			},
+			"inSessions": true,
+			"runOptions": {
+				"runOn": "worktreeCreated"
 			}
 		}
 	]
