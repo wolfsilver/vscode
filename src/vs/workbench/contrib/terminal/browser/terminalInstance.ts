@@ -18,6 +18,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { KeyCode } from '../../../../base/common/keyCodes.js';
 import { ISeparator, normalizeDriveLetter, template } from '../../../../base/common/labels.js';
 import { Disposable, DisposableMap, DisposableStore, IDisposable, ImmortalReference, MutableDisposable, dispose, toDisposable, type IReference } from '../../../../base/common/lifecycle.js';
+import { autorun } from '../../../../base/common/observable.js';
 import { Schemas } from '../../../../base/common/network.js';
 import * as path from '../../../../base/common/path.js';
 import { OS, OperatingSystem, isMacintosh, isWindows } from '../../../../base/common/platform.js';
@@ -184,6 +185,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 	private readonly _messageTitleDisposable: MutableDisposable<IDisposable> = this._register(new MutableDisposable());
 	private _widgetManager: TerminalWidgetManager;
 	private readonly _dndObserver: MutableDisposable<IDisposable> = this._register(new MutableDisposable());
+	private readonly _scmBranchSubscription: MutableDisposable<IDisposable> = this._register(new MutableDisposable());
 	private _lastLayoutDimensions: dom.Dimension | undefined;
 	private _description?: string;
 	private _processName: string = '';
@@ -395,6 +397,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 		@ICommandService private readonly _commandService: ICommandService,
 		@IAccessibilitySignalService private readonly _accessibilitySignalService: IAccessibilitySignalService,
 		@IViewDescriptorService private readonly _viewDescriptorService: IViewDescriptorService,
+		@ISCMService private readonly _scmService: ISCMService,
 	) {
 		super();
 
@@ -472,6 +475,8 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 					capabilityListeners.set(e.id, e.capability.onDidChangeCwd(e => {
 						this._cwd = e;
 						this._setTitle(this.title, TitleEventSource.Config);
+						// Subscribe to branch name changes for the new cwd
+						this._subscribeToBranchNameChanges(e);
 					}));
 					break;
 				}
@@ -2469,6 +2474,42 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 				}
 				return;
 			}
+		}
+	}
+
+	private _subscribeToBranchNameChanges(cwd: string | undefined): void {
+		// Clear any existing subscription
+		this._scmBranchSubscription.clear();
+
+		if (!cwd) {
+			return;
+		}
+
+		try {
+			const cwdUri = URI.file(cwd);
+			const repository = this._scmService.getRepository(cwdUri);
+			if (!repository) {
+				return;
+			}
+
+			const provider = repository.provider as any;
+			if (!provider || !provider.rootUri) {
+				return;
+			}
+
+			// Subscribe to branch name changes via the observable
+			// The branchName property is an IObservable that we can subscribe to
+			const branchNameObservable = provider._branchName;
+			if (branchNameObservable && typeof branchNameObservable.read === 'function') {
+				// Use autorun to watch for changes to the branchName observable
+				this._scmBranchSubscription.value = autorun(reader => {
+					branchNameObservable.read(reader);
+					// Trigger label refresh when branch name changes
+					this._labelComputer?.refreshLabel(this);
+				});
+			}
+		} catch (error) {
+			// Silently fail if we can't subscribe - this is not critical
 		}
 	}
 }
