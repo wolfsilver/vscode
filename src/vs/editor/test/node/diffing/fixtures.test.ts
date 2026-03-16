@@ -26,6 +26,26 @@ suite('diffing fixtures', () => {
 		});
 	});
 
+	test('ignoreAllWhitespace ignores intra-line whitespace-only changes', () => {
+		const diffingAlgo = new DefaultLinesDiffComputer();
+		const diff = diffingAlgo.computeDiff(
+			['const value = 1;'],
+			['const   value\t= 1;'],
+			{ ignoreTrimWhitespace: false, ignoreAllWhitespace: true, maxComputationTimeMs: Number.MAX_SAFE_INTEGER, computeMoves: false }
+		);
+		assert.deepStrictEqual(diff.changes, []);
+	});
+
+	test('reports intra-line whitespace-only changes when ignoreAllWhitespace is disabled', () => {
+		const diffingAlgo = new DefaultLinesDiffComputer();
+		const diff = diffingAlgo.computeDiff(
+			['const value = 1;'],
+			['const   value\t= 1;'],
+			{ ignoreTrimWhitespace: false, ignoreAllWhitespace: false, maxComputationTimeMs: Number.MAX_SAFE_INTEGER, computeMoves: false }
+		);
+		assert.strictEqual(diff.changes.length, 1);
+	});
+
 
 	const fixturesOutDir = FileAccess.asFileUri('vs/editor/test/node/diffing/fixtures').fsPath;
 	// We want the dir in src, so we can directly update the source files if they disagree and create invalid files to capture the previous state.

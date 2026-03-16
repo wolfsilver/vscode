@@ -20,6 +20,8 @@ import { extendDiffsToEntireWordIfAppropriate, optimizeSequenceDiffs, removeShor
 import { LineSequence } from './lineSequence.js';
 import { LinesSliceCharSequence } from './linesSliceCharSequence.js';
 
+const allWhitespaceRegex = /\s+/g;
+
 export class DefaultLinesDiffComputer implements ILinesDiffComputer {
 	private readonly dynamicProgrammingDiffing = new DynamicProgrammingDiffing();
 	private readonly myersDiffingAlgorithm = new MyersDiffAlgorithm();
@@ -45,7 +47,8 @@ export class DefaultLinesDiffComputer implements ILinesDiffComputer {
 		}
 
 		const timeout = options.maxComputationTimeMs === 0 ? InfiniteTimeout.instance : new DateTimeout(options.maxComputationTimeMs);
-		const considerWhitespaceChanges = !options.ignoreTrimWhitespace;
+		const ignoreAllWhitespace = options.ignoreAllWhitespace ?? false;
+		const considerWhitespaceChanges = !(options.ignoreTrimWhitespace || ignoreAllWhitespace);
 
 		const perfectHashes = new Map<string, number>();
 		function getOrCreateHash(text: string): number {
@@ -57,8 +60,11 @@ export class DefaultLinesDiffComputer implements ILinesDiffComputer {
 			return hash;
 		}
 
-		const originalLinesHashes = originalLines.map((l) => getOrCreateHash(l.trim()));
-		const modifiedLinesHashes = modifiedLines.map((l) => getOrCreateHash(l.trim()));
+		const normalizeLineForComparison = ignoreAllWhitespace
+			? (line: string) => line.replace(allWhitespaceRegex, '')
+			: (line: string) => line.trim();
+		const originalLinesHashes = originalLines.map((l) => getOrCreateHash(normalizeLineForComparison(l)));
+		const modifiedLinesHashes = modifiedLines.map((l) => getOrCreateHash(normalizeLineForComparison(l)));
 
 		const sequence1 = new LineSequence(originalLinesHashes, originalLines);
 		const sequence2 = new LineSequence(modifiedLinesHashes, modifiedLines);
