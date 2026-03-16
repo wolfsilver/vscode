@@ -694,7 +694,7 @@ export const terminalContributionsDescriptor: IExtensionPointDescriptor<ITermina
 							}]
 						},
 						titleTemplate: {
-							description: nls.localize('vscode.extension.contributes.terminal.profiles.titleTemplate', "A title template string for the terminal tab. Supports variables like $\{sequence}, $\{process}, $\{cwd}, etc. Overrides the default terminal.integrated.tabs.title setting for terminals created with this profile."),
+							description: nls.localize('vscode.extension.contributes.terminal.profiles.titleTemplate', "A title template string for the terminal tab. Supports variables like $\{sequence}, $\{process}, $\{cwd}, $\{branch}, etc. Overrides the default terminal.integrated.tabs.title setting for terminals created with this profile."),
 							type: 'string',
 						},
 					},
